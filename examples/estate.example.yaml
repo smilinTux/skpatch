@@ -45,6 +45,15 @@ dependency_track:
   api_key_file: "~/.skcapstone/secrets/skbom-api-key"
   project_classifier: "APPLICATION"
 
+# Optional Trivy execution knobs (see skpatch.sbom.run_trivy_sbom). Omit
+# this whole key to keep the pre-existing default: run the `trivy` binary
+# on this worker's PATH, no container, no cache-dir override.
+trivy:
+  use_container: false
+  container_image: null # null = skpatch.sbom.TRIVY_IMAGE's pinned tag+digest
+  docker_cmd: "docker"
+  cache_dir: null # null = ~/.cache/skpatch/trivy
+
 # Notification adapters. Every key is optional; a missing credentials file
 # just disables that adapter for the run (see skpatch.notify).
 notify:

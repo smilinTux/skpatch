@@ -32,12 +32,15 @@ skpatch inventory --config ~/.skcapstone/skpatch/config.yaml
 
 `skpatch` inventories every running container image on an estate (read-only,
 over ssh), classifies its exposure from Traefik labels, scans it with Trivy
-and uploads the SBOM to Dependency-Track, classifies the resulting findings
-into release lanes, fans alerts out to whichever notification adapters are
-configured, and drives Renovate against the operator's own git host. It
-ships as a Python package, a `skpatch` CLI, and a set of Windmill flows
-(`windmill/f/skpatch/`) that schedule the daily inventory/SBOM pass and the
-weekly Renovate/policy pass.
+(a local binary or the pinned `aquasec/trivy` container) and uploads the
+SBOM to Dependency-Track (`skpatch.dtrack`: project lookup/create, BOM
+upload by project uuid, wait-for-processing, metrics, findings), classifies
+the resulting findings into release lanes, fans alerts out to whichever
+notification adapters are configured, and drives Renovate against the
+operator's own git host. It ships as a Python package, a `skpatch` CLI, and
+a set of Windmill flows (`windmill/f/skpatch/`) that schedule the daily
+inventory/SBOM pass (03:30 UTC), the fuller Trivy-to-Dependency-Track
+`sbom_daily` pass, and the weekly Renovate/policy pass.
 
 It is deliberately **not** the thing that applies a pin to a running
 service, nor the release gate, nor the deploy. Those live in
