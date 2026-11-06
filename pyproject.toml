@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "skpatch"
+version = "0.1.0"
+description = "Pin, inventory, scan and patch every image on a schedule. Same-day for critical, weekly for the rest."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "AGPL-3.0-or-later"
+authors = [{ name = "smilinTux" }]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+]
+dependencies = [
+    "pydantic>=2.5",
+    "PyYAML>=6.0",
+    "click>=8.1",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "black>=24.0",
+    "mypy>=1.8",
+]
+
+[project.scripts]
+skpatch = "skpatch.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+skpatch = ["data/*.yaml"]
+
+[tool.black]
+line-length = 110
+target-version = ["py311"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
