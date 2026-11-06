@@ -23,10 +23,25 @@ import base64
 import json
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Protocol
 
 from skpatch.config import DependencyTrackConfig
 from skpatch.imageref import ImageRef
+
+# Pinned aquasec/trivy container, exact tag + digest (never a floating tag;
+# see CONTRIBUTING.md's "bumping a pinned container digest" row for how to
+# re-pin this). Verified against Docker Hub's repository API 2026-11-06;
+# this is the "0.x" release the task that added container-mode scanning
+# asked to pin, not "latest", so a re-pin is a deliberate, reviewable diff.
+TRIVY_IMAGE = "aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb"
+
+
+def default_trivy_cache_dir() -> str:
+    """Where a container-mode trivy run persists its vulnerability DB cache
+    between runs (bind-mounted at /root/.cache/trivy in the container), so a
+    scheduled run does not re-download the DB on every invocation."""
+    return str(Path("~/.cache/skpatch/trivy").expanduser())
 
 
 class SbomError(Exception):
@@ -63,17 +78,52 @@ def project_version_for(ref: ImageRef) -> str:
 
 
 def run_trivy_sbom(
-    image: str, *, trivy_cmd: str = "trivy", timeout: float = 300, runner=None
+    image: str,
+    *,
+    trivy_cmd: str = "trivy",
+    use_container: bool = False,
+    container_image: str = TRIVY_IMAGE,
+    docker_cmd: str = "docker",
+    cache_dir: str | None = None,
+    timeout: float = 300,
+    runner=None,
 ) -> dict[str, Any]:
     """Run ``trivy image --format cyclonedx`` against a fully-qualified image
     reference (tag and/or digest included) and return the parsed BOM.
+
+    Two ways to run trivy, both producing the identical CycloneDX output:
+
+    - **local binary** (default, ``use_container=False``): ``trivy_cmd`` on
+      the worker's PATH. Exactly the pre-existing behavior; nothing above
+      this function needs to change to keep using it.
+    - **pinned container** (``use_container=True``): the exact
+      ``container_image`` (default ``TRIVY_IMAGE``, a tag+digest pin, never
+      a floating tag) via ``docker_cmd run --rm``, bind-mounting
+      ``cache_dir`` (default ``default_trivy_cache_dir()``) at
+      ``/root/.cache/trivy`` so the vulnerability DB persists between runs.
 
     Raises SbomError on a non-zero exit or unparsable output; never raises a
     raw subprocess exception so a scheduled run can log and skip one bad
     image instead of crashing the whole sync.
     """
     runner = runner or subprocess.run
-    argv = [trivy_cmd, "image", "--quiet", "--format", "cyclonedx", image]
+    if use_container:
+        resolved_cache_dir = cache_dir or default_trivy_cache_dir()
+        argv = [
+            docker_cmd,
+            "run",
+            "--rm",
+            "-v",
+            f"{resolved_cache_dir}:/root/.cache/trivy",
+            container_image,
+            "image",
+            "--quiet",
+            "--format",
+            "cyclonedx",
+            image,
+        ]
+    else:
+        argv = [trivy_cmd, "image", "--quiet", "--format", "cyclonedx", image]
     try:
         proc = runner(argv, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired as exc:
@@ -189,6 +239,10 @@ def sync_image_sbom(
     dt_config: DependencyTrackConfig,
     session: _HttpSession,
     trivy_cmd: str = "trivy",
+    use_container: bool = False,
+    container_image: str = TRIVY_IMAGE,
+    docker_cmd: str = "docker",
+    cache_dir: str | None = None,
     subprocess_runner=None,
     api_key: str | None = None,
 ) -> SyncResult:
@@ -196,13 +250,24 @@ def sync_image_sbom(
     deactivate the project's other versions.
 
     ``api_key`` is injectable for tests; in production it is read from
-    ``dt_config.api_key_file``.
+    ``dt_config.api_key_file``. ``use_container``/``container_image``/
+    ``docker_cmd``/``cache_dir`` pass straight through to
+    ``run_trivy_sbom``; their defaults reproduce the pre-existing
+    local-binary behavior exactly.
     """
     project_name = project_name_for(estate, service)
     project_version = project_version_for(ref)
     try:
         key = api_key if api_key is not None else _read_api_key(dt_config.api_key_file)
-        bom = run_trivy_sbom(raw_image, trivy_cmd=trivy_cmd, runner=subprocess_runner)
+        bom = run_trivy_sbom(
+            raw_image,
+            trivy_cmd=trivy_cmd,
+            use_container=use_container,
+            container_image=container_image,
+            docker_cmd=docker_cmd,
+            cache_dir=cache_dir,
+            runner=subprocess_runner,
+        )
         upload_bom(
             session,
             base_url=dt_config.base_url,
