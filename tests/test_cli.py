@@ -8,6 +8,7 @@ import json
 from click.testing import CliRunner
 
 from skpatch import cli
+from skpatch.dtrack import Project
 from skpatch.inventory import InventoryResult
 from skpatch.renovate import RenovateResult
 from skpatch.sbom import SyncResult
@@ -118,6 +119,113 @@ dependency_track:
             "svc",
             "--image",
             "redis:7-alpine@sha256:" + "a" * 64,
+        ],
+    )
+    assert result.exit_code != 0
+
+
+def test_dtrack_upload_command_ensures_project_uploads_and_waits(tmp_path, monkeypatch):
+    key_file = tmp_path / "dt-api-key"
+    key_file.write_text("super-secret-key\n")
+    bom_path = tmp_path / "bom.json"
+    bom_path.write_text(json.dumps({"bomFormat": "CycloneDX", "specVersion": "1.5", "components": []}))
+
+    calls = {}
+
+    def fake_ensure_project(session, *, base_url, api_key, name, version, tags):
+        calls["ensure_project"] = {"base_url": base_url, "api_key": api_key, "name": name, "version": version}
+        return Project(uuid="proj-uuid", name=name, version=version, tags=list(tags))
+
+    def fake_upload_bom(session, *, base_url, api_key, project_uuid, cyclonedx_json_bytes):
+        calls["upload_bom"] = {"project_uuid": project_uuid, "body": json.loads(cyclonedx_json_bytes)}
+        return "a-token"
+
+    def fake_wait_processed(session, *, base_url, api_key, token):
+        calls["wait_processed"] = token
+        return True
+
+    monkeypatch.setattr(cli.dtrack_mod, "ensure_project", fake_ensure_project)
+    monkeypatch.setattr(cli.dtrack_mod, "upload_bom", fake_upload_bom)
+    monkeypatch.setattr(cli.dtrack_mod, "wait_processed", fake_wait_processed)
+
+    result = CliRunner().invoke(
+        cli.main,
+        [
+            "dtrack",
+            "upload",
+            "estate-a/svc/redis",
+            "abc123def456",
+            str(bom_path),
+            "--base-url",
+            "https://skbom.example.org",
+            "--api-key-file",
+            str(key_file),
+            "--tag",
+            "estate-a",
+        ],
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["project_uuid"] == "proj-uuid"
+    assert payload["processed"] is True
+    assert calls["ensure_project"]["api_key"] == "super-secret-key"
+    assert calls["upload_bom"]["project_uuid"] == "proj-uuid"
+    assert calls["wait_processed"] == "a-token"
+
+
+def test_dtrack_upload_command_skips_waiting_with_no_wait(tmp_path, monkeypatch):
+    key_file = tmp_path / "dt-api-key"
+    key_file.write_text("k\n")
+    bom_path = tmp_path / "bom.json"
+    bom_path.write_text("{}")
+
+    monkeypatch.setattr(
+        cli.dtrack_mod,
+        "ensure_project",
+        lambda session, **kw: Project(uuid="u", name=kw["name"], version=kw["version"]),
+    )
+    monkeypatch.setattr(cli.dtrack_mod, "upload_bom", lambda session, **kw: "tok")
+
+    def fail_if_called(*a, **k):
+        raise AssertionError("wait_processed should not be called with --no-wait")
+
+    monkeypatch.setattr(cli.dtrack_mod, "wait_processed", fail_if_called)
+
+    result = CliRunner().invoke(
+        cli.main,
+        [
+            "dtrack",
+            "upload",
+            "estate-a/svc/redis",
+            "abc123def456",
+            str(bom_path),
+            "--base-url",
+            "https://skbom.example.org",
+            "--api-key-file",
+            str(key_file),
+            "--no-wait",
+        ],
+    )
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["processed"] is None
+
+
+def test_dtrack_upload_command_with_a_missing_api_key_file_exits_nonzero(tmp_path):
+    bom_path = tmp_path / "bom.json"
+    bom_path.write_text("{}")
+    result = CliRunner().invoke(
+        cli.main,
+        [
+            "dtrack",
+            "upload",
+            "estate-a/svc/redis",
+            "abc123def456",
+            str(bom_path),
+            "--base-url",
+            "https://skbom.example.org",
+            "--api-key-file",
+            str(tmp_path / "does-not-exist"),
         ],
     )
     assert result.exit_code != 0
