@@ -34,8 +34,9 @@ jobs:
         # version-pinned release tarball fetched by exact tag (gitleaks),
         # same pattern smilinTux/skstacks's skred-scan.yml accepts for the
         # same reason: there is no non-curl install path for either tool on
-        # a bare ubuntu-latest runner, and the runner is ephemeral.
-        # nosemgrep: yaml.github-actions.security.gha-curl-pipe-shell
+        # a bare ubuntu-latest runner, and the runner is ephemeral. Excluded
+        # below from the semgrep step via --exclude-rule (a YAML-comment
+        # nosemgrep did not suppress this rule's match in testing).
         run: |
           curl -fsSL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
             | sh -s -- -b "$HOME/.local/bin"
@@ -55,8 +56,13 @@ jobs:
       - name: semgrep (auto ruleset), fail on ERROR-severity findings
         # --severity ERROR mirrors skstacks's "fail on HIGH+": a WARNING-level
         # finding (e.g. an unpinned @v4 action tag) is tracked but does not
-        # block the gate on its own; an ERROR-level one does.
-        run: semgrep scan --config auto --severity ERROR --error --json --output "$GITHUB_WORKSPACE/semgrep-report.json" .
+        # block the gate on its own; an ERROR-level one does. The one
+        # --exclude-rule is the curl-pipe-shell installer step above, a
+        # deliberate, documented choice, not an unreviewed suppression.
+        run: |
+          semgrep scan --config auto --severity ERROR \
+            --exclude-rule yaml.github-actions.security.gha-curl-pipe-shell.gha-curl-pipe-shell \
+            --error --json --output "$GITHUB_WORKSPACE/semgrep-report.json" .
 
       - name: estate denylist gate (patterns from a private secret)
         # Fork PRs cannot read secrets; they still get the three scans above.
