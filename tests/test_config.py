@@ -26,6 +26,8 @@ clusters:
     assert cfg.clusters["estate-a"].manager_hosts == ["mgr-a1.example", "mgr-a2.example"]
     assert cfg.notify.talk_digest_room == "Ops Admin"
     assert cfg.dependency_track is None
+    assert cfg.trivy.use_container is False
+    assert cfg.trivy.container_image is None
 
 
 def test_full_config_with_dependency_track_and_renovate_blocks(tmp_path):
@@ -47,6 +49,26 @@ renovate:
     assert cfg.dependency_track.base_url == "https://skbom.example.org"
     assert cfg.renovate.repositories == ["smilintux-estate/skstacks"]
     assert cfg.renovate.platform == "gitea"
+
+
+def test_trivy_block_overrides_the_container_defaults(tmp_path):
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        """
+clusters: {}
+trivy:
+  use_container: true
+  container_image: "aquasec/trivy:0.76.2@sha256:"""
+        + "a" * 64
+        + """"
+  docker_cmd: "podman"
+  cache_dir: "/var/cache/skpatch-trivy"
+"""
+    )
+    cfg = load_config(path)
+    assert cfg.trivy.use_container is True
+    assert cfg.trivy.docker_cmd == "podman"
+    assert cfg.trivy.cache_dir == "/var/cache/skpatch-trivy"
 
 
 def test_top_level_list_instead_of_mapping_is_rejected(tmp_path):

@@ -37,5 +37,20 @@ uses [Semantic Versioning](https://semver.org/).
   (mermaid fences parse, no em/en dashes).
 - 76 pytest tests across 10 modules plus the CLI, all mocking
   subprocess/HTTP - no network, no live host, no real Docker or ssh.
+- **Phase 4:** `skpatch.dtrack`, a Dependency-Track API client
+  (`ensure_project`, `upload_bom` by project uuid, `wait_processed`,
+  `project_metrics`, `findings`, plus a `finding_to_policy_kwargs` mapper
+  into `skpatch.policy.Finding`), with its own test suite. `skpatch.sbom`
+  gains an opt-in pinned-container Trivy mode (`TRIVY_IMAGE`,
+  `use_container`, `cache_dir`) alongside the existing local-binary path;
+  defaults are unchanged. `EstateConfig` gains a `trivy` block wiring those
+  knobs through an operator's config file. `skpatch` CLI gains a `dtrack`
+  group (`dtrack upload`). New Windmill flow `f/skpatch/sbom_daily`
+  (03:30 UTC): inventory -> per-service `sbom_dtrack_sync` (Trivy scan,
+  real-time exposure lookup, Dependency-Track upload by project uuid,
+  policy classify, immediate same_day/watch notice) -> `sbom_daily_summary`
+  (one end-of-run digest). Documents the new `f/skpatch/skbom` Windmill
+  resource shape. This flow runs alongside the pre-existing `f/skpatch/daily`
+  (02:00 UTC, name+version autoCreate), which is unchanged.
 
 [0.1.0]: https://github.com/smilinTux/skpatch/releases/tag/v0.1.0

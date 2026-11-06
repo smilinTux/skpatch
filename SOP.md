@@ -57,6 +57,7 @@ flowchart TD
         EXP[exposure]
         PROBE[probe]
         SBOM[sbom]
+        DTRACK[dtrack]
         POL[policy]
         NOT[notify]
         REN[renovate]
@@ -66,8 +67,9 @@ flowchart TD
     INV -->|"ssh: docker service ls/inspect"| MGR[(Swarm manager)]
     EXP -->|"ssh: docker service inspect labels"| MGR
     PROBE -->|"ssh: docker service ps + docker exec"| MGR
-    SBOM -->|"subprocess: trivy image --format cyclonedx"| TRIVY[Trivy]
-    SBOM -->|"HTTPS: PUT /api/v1/bom"| DT[(Dependency-Track<br/>'skbom')]
+    SBOM -->|"subprocess or docker run: trivy image --format cyclonedx"| TRIVY[Trivy]
+    SBOM -->|"HTTPS: PUT /api/v1/bom (name+version autoCreate)"| DT[(Dependency-Track<br/>'skbom')]
+    DTRACK -->|"HTTPS: project lookup/create, BOM upload by uuid, metrics, findings"| DT
     POL -->|"pure function, no I/O"| DT
     NOT -->|"HTTPS: run_wait_result"| WM[Windmill f/ops/notify]
     NOT -->|"HTTPS"| SKALERT[SKAlert/Telegram]
@@ -118,6 +120,38 @@ sequenceDiagram
     Trivy-->>Sbom: CycloneDX BOM
     Sbom->>DT: PUT /api/v1/bom (project estate/service)
     Sbom->>DT: deactivate other versions of this project
+```
+
+### Sequence - sbom_daily (Trivy to Dependency-Track, by project uuid)
+
+```mermaid
+sequenceDiagram
+    participant Scheduler as Windmill f/skpatch sbom_daily flow
+    participant Inv as inventory.py
+    participant Mgr as Swarm manager
+    participant Sync as sbom_dtrack_sync.py
+    participant Trivy
+    participant DT as Dependency-Track
+    participant Not as notify.py
+    participant Summary as sbom_daily_summary.py
+
+    Scheduler->>Inv: collect_estate_inventory(estate)
+    Inv->>Mgr: ssh docker service ls / inspect
+    Mgr-->>Inv: service -> image@digest rows
+    loop per inventoried service
+        Scheduler->>Sync: main(config_path, estate, service, raw_image, manager, skbom)
+        Sync->>Mgr: ssh docker service inspect labels (exposure)
+        Sync->>Trivy: trivy image --format cyclonedx
+        Trivy-->>Sync: CycloneDX BOM
+        Sync->>DT: GET /api/v1/project/lookup (ensure_project)
+        Sync->>DT: PUT /api/v1/bom (project uuid)
+        Sync->>DT: GET /api/v1/bom/token/{token} (wait_processed, polled)
+        Sync->>DT: GET /api/v1/finding/project/{uuid}
+        Sync->>Sync: classify_findings -> lanes
+        Sync->>Not: notify_all (one call per same_day/watch finding)
+    end
+    Scheduler->>Summary: main(config_path, results)
+    Summary->>Not: notify_all (one end-of-run digest)
 ```
 
 ## 3. Build
@@ -191,7 +225,22 @@ skpatch sbom --config ~/.skcapstone/skpatch/config.yaml --estate estate-a --serv
 skpatch policy --findings-file findings.json
 skpatch renovate --config ~/.skcapstone/skpatch/config.yaml
 skpatch probe --config ~/.skcapstone/skpatch/config.yaml --estate estate-a --service skhub-prod_nextcloud --image-repo nextcloud --manager mgr-a1.example
+
+# Low-level Dependency-Track operations (project uuid up front, metrics,
+# findings) via skpatch.dtrack; see also the sbom_daily Windmill flow,
+# which drives the same client end to end per inventoried service.
+skpatch dtrack upload estate-a/skhub-prod_nextcloud/nextcloud 34.0.4@abc123 bom.json \
+  --base-url https://skbom.example.org --api-key-file ~/.skcapstone/secrets/skbom-api-key \
+  --tag estate-a --tag skhub-prod_nextcloud
 ```
+
+The `sbom` command (and the pre-existing `f/skpatch/daily` flow) run Trivy
+locally by default; set `trivy.use_container: true` in `--config` (see
+`examples/estate.example.yaml`) to run the pinned `aquasec/trivy` container
+instead (`skpatch.sbom.TRIVY_IMAGE`). This is unrelated to `dtrack upload`,
+which never shells out to Trivy itself - it only talks to Dependency-Track;
+generate the BOM first (`skpatch sbom` or a bare `trivy image --format
+cyclonedx`) and pass its path.
 
 ## 7. API / Reference
 
@@ -201,11 +250,12 @@ skpatch probe --config ~/.skcapstone/skpatch/config.yaml --estate estate-a --ser
 | `skpatch.inventory` | `collect_estate_inventory(estate, manager_hosts, ...) -> InventoryResult` |
 | `skpatch.exposure` | `fetch_service_labels(...)`, `classify_exposure(labels) -> ExposureResult` |
 | `skpatch.probe` | `probe_runtime(...) -> ProbeResult`, `load_floors(path)`, `runtimes_for_image(...)`, `evaluate(...) -> FloorCheck` |
-| `skpatch.sbom` | `run_trivy_sbom(image, ...) -> dict`, `sync_image_sbom(...) -> SyncResult` |
+| `skpatch.sbom` | `run_trivy_sbom(image, ...) -> dict` (local binary or the pinned `TRIVY_IMAGE` container), `sync_image_sbom(...) -> SyncResult`, `default_trivy_cache_dir()` |
+| `skpatch.dtrack` | `ensure_project(...) -> Project`, `upload_bom(...) -> token`, `is_processed(...)`/`wait_processed(...) -> bool`, `project_metrics(...) -> dict`, `findings(...) -> list[dict]`, `finding_to_policy_kwargs(raw) -> dict`, `project_name_version(...)` |
 | `skpatch.policy` | `Finding`, `Lane`, `classify_finding(f) -> Lane`, `classify_findings(list) -> dict`, `worst_lane(list) -> Lane \| None` |
 | `skpatch.notify` | `notify_all(...) -> list[NotifyOutcome]`, `gtd_upsert_finding(...)` |
 | `skpatch.renovate` | `run_renovate(config, ...) -> RenovateResult` |
-| `skpatch.cli` | `inventory`, `sbom`, `policy`, `renovate`, `probe` subcommands of the `skpatch` entry point |
+| `skpatch.cli` | `inventory`, `sbom`, `policy`, `renovate`, `probe` subcommands, plus the `dtrack` group (`dtrack upload`), of the `skpatch` entry point |
 
 CLI: `skpatch --help` for the full option list per subcommand.
 
@@ -219,6 +269,9 @@ CLI: `skpatch --help` for the full option list per subcommand.
 | A notify adapter never fires | Check the matching `*_credentials_file` key in your config actually points at an existing, complete env file. `notify_all` logs a warning and continues; it never raises, so check logs, not exceptions. |
 | `renovate` run fails with a config error from the container itself | The container's own stderr is in `RenovateResult.stderr`; this module only builds the invocation, it does not validate Renovate's own config schema. |
 | A test fails only in CI, not locally | Check `tests.yml`'s Python version matches yours; the suite has no network/host dependency so a CI-only failure is almost always an environment mismatch, not a flaky test. |
+| `dtrack upload` (or `sbom_dtrack_sync` in the `sbom_daily` flow) hangs or reports `processed: false` | `wait_processed` polls `/api/v1/bom/token/{token}` up to `max_wait` seconds (default 300) and returns `False` on a timeout rather than raising; a `false` doesn't mean the upload failed, it means Dependency-Track was still matching the BOM when this call gave up. Check Dependency-Track's own BOM-processing queue, not this client. |
+| `sbom.use_container: true` fails with "exec: docker: not found" or a permission error | The worker running this step needs `docker` on PATH and permission to run it (the same requirement `renovate.py`'s container invocation already has); `docker_cmd` in the `trivy` config block can point at a wrapper (e.g. `sudo docker`) if that's how the worker is provisioned. |
+| A `sbom_daily` finding looks like it should be `same_day` but lands in `watch`/`monthly` | Check `finding_to_policy_kwargs`'s fix-available proxy (`component.latestVersion` vs `component.version`) against the raw Dependency-Track finding; see docs/skpatch-program.md's "Dependency-Track findings -> policy.Finding mapping" honest limit. This is a known, documented gap, not a bug to patch silently. |
 
 ## 9. Maturity-tier + Version reference
 

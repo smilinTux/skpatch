@@ -42,8 +42,9 @@ architecture, build, and test.
 | Docs/typo | Nothing beyond CI green. |
 | New policy lane or rule | Update the table in `docs/skpatch-program.md` *and* `src/skpatch/policy.py`'s docstring in the same PR; add a happy-path + edge-case test. |
 | New notify adapter | Must be optional and config-driven; a missing credentials file must raise `NotConfigured` and be caught by `notify_all`, never crash the run. Add tests mirroring `test_notify.py`'s "missing credentials" and "well-formed credentials" pairs. |
-| New Windmill script under `windmill/f/skpatch/` | Follow the `wmill sync` layout (`*.py` + `*.script.yaml`); wire it through the existing CLI entry points rather than duplicating logic. |
+| New Windmill script under `windmill/f/skpatch/` | Follow the `wmill sync` layout (`*.py` + `*.script.yaml`); wire it through the existing CLI entry points rather than duplicating logic. Do not run `black` on files under `windmill/`: it rewrites the `#requirements:` header Windmill's own parser expects, with no space after the `#`; `tests.yml`'s `black --check` intentionally scopes to `src/ tests/` for this reason. |
 | Touching `_remote.py` (the ssh helper) | Highest blast radius in the repo - every inventory/exposure/probe call goes through it. Add a test for any new failure mode (timeout, exit 255, non-zero exit) mirroring the existing three-way split. |
+| Bumping a pinned container digest (e.g. `skpatch.sbom.TRIVY_IMAGE`) | Pin an exact `tag@sha256:digest`, never a floating tag; look the digest up from the registry's own API (e.g. Docker Hub's `/v2/repositories/<repo>/tags/`) and record how you got it in the commit message. |
 
 ## Workflow
 

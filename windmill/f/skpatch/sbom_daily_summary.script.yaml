@@ -1,0 +1,38 @@
+summary: "skpatch: aggregate the sbom_daily forloop into one digest notice"
+description: >
+  Sums the per-service lane counts returned by every f/skpatch/sbom_dtrack_sync
+  iteration and posts one end-of-run digest via skpatch.notify.notify_all.
+  Run once, after the forloop step (see sbom_daily.flow/flow.yaml).
+lock: ''
+concurrency_key: null
+concurrent_limit: null
+concurrency_time_window_s: null
+cache_ttl: null
+dedicated_worker: null
+ws_error_handler_muted: false
+priority: null
+restart_unless_cancelled: null
+tag: null
+timeout: null
+delete_after_use: false
+visible_to_runner_only: false
+no_main_func: null
+codebase: null
+schema:
+  $schema: "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  order:
+    - config_path
+    - results
+  properties:
+    config_path:
+      type: string
+      description: "Path to the operator's estate config YAML, readable from this worker."
+    results:
+      type: array
+      description: "The sbom_dtrack_sync forloop's per-service result objects (results.sbom_dtrack_sync)."
+      items:
+        type: object
+  required:
+    - config_path
+    - results

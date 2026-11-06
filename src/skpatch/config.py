@@ -47,6 +47,24 @@ class DependencyTrackConfig(BaseModel):
     project_classifier: str = "APPLICATION"
 
 
+class TrivyConfig(BaseModel):
+    """Optional Trivy execution knobs for ``skpatch sbom`` and the
+    sbom_daily Windmill flow (see skpatch.sbom.run_trivy_sbom).
+
+    Omitting this block entirely keeps the pre-existing behavior: run the
+    ``trivy`` binary on the worker's PATH, no container, no cache dir
+    override. Set ``use_container: true`` to run the pinned
+    ``aquasec/trivy`` container instead (skpatch.sbom.TRIVY_IMAGE is the
+    exact tag+digest this package pins; override it here only to pin a
+    different, equally exact tag+digest - never a floating tag).
+    """
+
+    use_container: bool = False
+    container_image: str | None = None
+    docker_cmd: str = "docker"
+    cache_dir: str | None = None
+
+
 class NotifyConfig(BaseModel):
     """Optional, config-driven notification adapters.
 
@@ -83,6 +101,7 @@ class EstateConfig(BaseModel):
     cache_ttl_hours: float = 20.0
     registry: RegistryConfig = Field(default_factory=RegistryConfig)
     dependency_track: DependencyTrackConfig | None = None
+    trivy: TrivyConfig = Field(default_factory=TrivyConfig)
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
     renovate: RenovateConfig | None = None
 

@@ -19,6 +19,7 @@ from typing import Any
 
 import click
 
+from skpatch import dtrack as dtrack_mod
 from skpatch import exposure as exposure_mod
 from skpatch import inventory as inventory_mod
 from skpatch import policy as policy_mod
@@ -92,10 +93,72 @@ def sbom(config_path: str, estate_name: str, service_name: str, raw_image: str) 
         raw_image=raw_image,
         dt_config=cfg.dependency_track,
         session=requests.Session(),
+        use_container=cfg.trivy.use_container,
+        container_image=cfg.trivy.container_image or sbom_mod.TRIVY_IMAGE,
+        docker_cmd=cfg.trivy.docker_cmd,
+        cache_dir=cfg.trivy.cache_dir,
     )
     click.echo(_dump(result))
     if not result.uploaded:
         raise SystemExit(1)
+
+
+@main.group()
+def dtrack() -> None:
+    """Low-level Dependency-Track operations (skpatch.dtrack): project
+    lookup/create, BOM upload by project uuid, and findings/metrics."""
+
+
+@dtrack.command("upload")
+@click.argument("project_name")
+@click.argument("project_version")
+@click.argument("bom_path", type=click.File("rb"))
+@click.option("--base-url", "base_url", required=True, help="Dependency-Track base URL.")
+@click.option(
+    "--api-key-file",
+    "api_key_file",
+    required=True,
+    help="Path to a file whose only content is the Dependency-Track API key.",
+)
+@click.option("--tag", "tags", multiple=True, help="Project tag; repeatable.")
+@click.option(
+    "--wait/--no-wait", default=True, help="Wait for Dependency-Track to finish processing the BOM."
+)
+def dtrack_upload(
+    project_name: str,
+    project_version: str,
+    bom_path,
+    base_url: str,
+    api_key_file: str,
+    tags: tuple,
+    wait: bool,
+) -> None:
+    """Ensure PROJECT_NAME/PROJECT_VERSION exists in Dependency-Track and upload BOM_PATH to it."""
+    import requests
+
+    from skpatch.sbom import _read_api_key
+
+    api_key = _read_api_key(api_key_file)
+    session = requests.Session()
+    project = dtrack_mod.ensure_project(
+        session,
+        base_url=base_url,
+        api_key=api_key,
+        name=project_name,
+        version=project_version,
+        tags=list(tags),
+    )
+    token = dtrack_mod.upload_bom(
+        session,
+        base_url=base_url,
+        api_key=api_key,
+        project_uuid=project.uuid,
+        cyclonedx_json_bytes=bom_path.read(),
+    )
+    processed = (
+        dtrack_mod.wait_processed(session, base_url=base_url, api_key=api_key, token=token) if wait else None
+    )
+    click.echo(_dump({"project_uuid": project.uuid, "token": token, "processed": processed}))
 
 
 @main.command()
