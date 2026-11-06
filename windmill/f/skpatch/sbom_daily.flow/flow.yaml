@@ -1,0 +1,99 @@
+summary: "skpatch: daily inventory + Trivy SBOM to Dependency-Track sync"
+description: >
+  Runs every day at 03:30 UTC (see the paired sbom_daily.schedule.yaml in
+  this folder). Step 1 inventories every configured estate. Step 2 loops
+  over every inventoried service: Trivy-scans its image, uploads the BOM to
+  Dependency-Track as project <estate>/<service>/<repo> version <short
+  digest> (f/skpatch/sbom_dtrack_sync), classifies the resulting findings
+  into release lanes (skpatch.policy) and fires an immediate notice for any
+  same_day/watch finding. Step 3 aggregates every iteration's lane counts
+  into one end-of-run digest notice (f/skpatch/sbom_daily_summary). See
+  docs/skpatch-program.md "Pipeline" step 2 and its "Dependency-Track
+  Windmill resource" section for the skbom resource shape this flow reads.
+
+  This is a separate flow from the pre-existing f/skpatch/daily (02:00 UTC,
+  skpatch.sbom.sync_image_sbom's name+version autoCreate path): that flow
+  is unchanged. sbom_daily is the fuller pipeline, with explicit project
+  uuids, a processing wait, a findings pull, and policy/notify wired in -
+  an operator adopting it can disable the older daily flow's schedule once
+  satisfied, or run both side by side (Dependency-Track's autoCreate and
+  this flow's ensure_project both converge on the same project by
+  name+version, so a double-run is harmless, just redundant).
+value:
+  modules:
+    - id: inventory
+      summary: "List every running service's pinned image"
+      value:
+        type: script
+        path: f/skpatch/inventory
+        input_transforms:
+          config_path:
+            type: javascript
+            expr: "flow_input.config_path"
+          estate:
+            type: javascript
+            expr: "flow_input.estate"
+    - id: sbom_dtrack_sync
+      summary: "Scan, upload to Dependency-Track, classify, and notify - per service"
+      value:
+        type: forloopflow
+        iterator:
+          type: javascript
+          expr: >-
+            results.inventory.flatMap(r => r.services.map(s => ({
+              estate: s.estate, service: s.service, image: s.image, manager: r.manager_used
+            })))
+        skip_failures: true
+        modules:
+          - id: sync
+            value:
+              type: script
+              path: f/skpatch/sbom_dtrack_sync
+              input_transforms:
+                config_path:
+                  type: javascript
+                  expr: "flow_input.config_path"
+                estate:
+                  type: javascript
+                  expr: "flow_input.iter.value.estate"
+                service:
+                  type: javascript
+                  expr: "flow_input.iter.value.service"
+                raw_image:
+                  type: javascript
+                  expr: "flow_input.iter.value.image"
+                manager:
+                  type: javascript
+                  expr: "flow_input.iter.value.manager"
+                skbom:
+                  type: static
+                  value: "$res:f/skpatch/skbom"
+    - id: summary
+      summary: "Aggregate every service's lane counts into one digest notice"
+      value:
+        type: script
+        path: f/skpatch/sbom_daily_summary
+        input_transforms:
+          config_path:
+            type: javascript
+            expr: "flow_input.config_path"
+          results:
+            type: javascript
+            expr: "results.sbom_dtrack_sync"
+  failure_module: null
+schema:
+  $schema: "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  order:
+    - config_path
+    - estate
+  properties:
+    config_path:
+      type: string
+      description: "Path to the operator's estate config YAML, readable from every worker this flow runs on."
+    estate:
+      type: string
+      description: "Optional: only run this flow for one estate."
+  required:
+    - config_path
+same_worker: false

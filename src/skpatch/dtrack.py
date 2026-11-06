@@ -121,7 +121,9 @@ def upload_bom(
     processing token Dependency-Track hands back, for ``wait_processed()``.
     Raises DtrackError if the upload is rejected or no token comes back."""
     body = {"project": project_uuid, "bom": base64.b64encode(cyclonedx_json_bytes).decode()}
-    resp = session.put(f"{base_url.rstrip('/')}/api/v1/bom", json=body, headers=_headers(api_key), timeout=timeout)
+    resp = session.put(
+        f"{base_url.rstrip('/')}/api/v1/bom", json=body, headers=_headers(api_key), timeout=timeout
+    )
     data = _require(resp, "BOM upload") or {}
     token = data.get("token") if isinstance(data, dict) else None
     if not token:
@@ -129,11 +131,15 @@ def upload_bom(
     return token
 
 
-def is_processed(session: _HttpSession, *, base_url: str, api_key: str, token: str, timeout: float = 30) -> bool:
+def is_processed(
+    session: _HttpSession, *, base_url: str, api_key: str, token: str, timeout: float = 30
+) -> bool:
     """``GET /api/v1/bom/token/{token}``: True once Dependency-Track is done
     matching this BOM against its vulnerability sources."""
     resp = session.get(
-        f"{base_url.rstrip('/')}/api/v1/bom/token/{token}", headers=_headers(api_key, json_body=False), timeout=timeout
+        f"{base_url.rstrip('/')}/api/v1/bom/token/{token}",
+        headers=_headers(api_key, json_body=False),
+        timeout=timeout,
     )
     data = _require(resp, "BOM token poll") or {}
     return not bool(data.get("processing", True)) if isinstance(data, dict) else False

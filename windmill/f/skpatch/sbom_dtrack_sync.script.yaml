@@ -1,0 +1,61 @@
+summary: "skpatch: Trivy scan + Dependency-Track upload + classify + notify for one service"
+description: >
+  Trivy-scans one inventoried service's image, uploads the resulting BOM to
+  Dependency-Track as project <estate>/<service>/<repo> (version = the
+  short sha256 digest), waits for Dependency-Track to finish processing,
+  classifies the findings into release lanes (skpatch.policy), and fires an
+  immediate notice for any same_day/watch finding. Wraps
+  skpatch.dtrack.ensure_project/upload_bom/wait_processed/findings plus
+  skpatch.sbom.run_trivy_sbom, skpatch.exposure, and skpatch.notify. Called
+  once per service by the forloop step of f/skpatch/sbom_daily (see
+  sbom_daily.flow/flow.yaml). skbom is the f/skpatch/skbom Windmill
+  resource; see docs/skpatch-program.md's "Dependency-Track Windmill
+  resource" section for its shape.
+lock: ''
+concurrency_key: null
+concurrent_limit: null
+concurrency_time_window_s: null
+cache_ttl: null
+dedicated_worker: null
+ws_error_handler_muted: false
+priority: null
+restart_unless_cancelled: null
+tag: null
+timeout: null
+delete_after_use: false
+visible_to_runner_only: false
+no_main_func: null
+codebase: null
+schema:
+  $schema: "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  order:
+    - config_path
+    - estate
+    - service
+    - raw_image
+    - manager
+    - skbom
+  properties:
+    config_path:
+      type: string
+      description: "Path to the operator's estate config YAML, readable from this worker."
+    estate:
+      type: string
+    service:
+      type: string
+    raw_image:
+      type: string
+      description: "repo:tag@sha256:digest as reported by inventory.py."
+    manager:
+      type: string
+      description: "A reachable Swarm manager host for this estate (inventory.py's manager_used), used for the read-only exposure lookup. Optional: omitted or unreachable means exposure defaults to internal."
+    skbom:
+      type: object
+      description: "Windmill resource f/skpatch/skbom: {base_url: string, api_key: string}. Never hardcode these values."
+  required:
+    - config_path
+    - estate
+    - service
+    - raw_image
+    - skbom
