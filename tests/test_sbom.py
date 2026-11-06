@@ -12,7 +12,9 @@ import pytest
 from skpatch.config import DependencyTrackConfig
 from skpatch.imageref import parse_image_ref
 from skpatch.sbom import (
+    TRIVY_IMAGE,
     SbomError,
+    default_trivy_cache_dir,
     project_name_for,
     project_version_for,
     run_trivy_sbom,
@@ -88,6 +90,50 @@ def test_run_trivy_sbom_raises_sbomerror_on_unparsable_output():
         run_trivy_sbom("redis:7-alpine", runner=fake_runner)
 
 
+def test_run_trivy_sbom_uses_the_pinned_container_when_requested():
+    captured = {}
+
+    def fake_runner(argv, capture_output, text, timeout):
+        captured["argv"] = argv
+        return FakeCompleted(0, stdout=json.dumps(CYCLONEDX_BOM))
+
+    bom = run_trivy_sbom(
+        "nextcloud:34.0.4@sha256:" + "b" * 64,
+        use_container=True,
+        cache_dir="/tmp/skpatch-trivy-cache",
+        runner=fake_runner,
+    )
+    assert bom["bomFormat"] == "CycloneDX"
+    argv = captured["argv"]
+    assert argv[0] == "docker"
+    assert argv[:3] == ["docker", "run", "--rm"]
+    assert "-v" in argv
+    assert argv[argv.index("-v") + 1] == "/tmp/skpatch-trivy-cache:/root/.cache/trivy"
+    assert TRIVY_IMAGE in argv
+    assert argv[-1] == "nextcloud:34.0.4@sha256:" + "b" * 64
+
+
+def test_run_trivy_sbom_container_mode_defaults_the_cache_dir():
+    captured = {}
+
+    def fake_runner(argv, capture_output, text, timeout):
+        captured["argv"] = argv
+        return FakeCompleted(0, stdout=json.dumps(CYCLONEDX_BOM))
+
+    run_trivy_sbom("redis:7-alpine", use_container=True, runner=fake_runner)
+    mount = captured["argv"][captured["argv"].index("-v") + 1]
+    assert mount == f"{default_trivy_cache_dir()}:/root/.cache/trivy"
+
+
+def test_run_trivy_sbom_local_binary_is_still_the_default():
+    def fake_runner(argv, capture_output, text, timeout):
+        assert argv[0] == "trivy"
+        assert "docker" not in argv
+        return FakeCompleted(0, stdout=json.dumps(CYCLONEDX_BOM))
+
+    run_trivy_sbom("redis:7-alpine", runner=fake_runner)
+
+
 def test_sync_image_sbom_uploads_and_deactivates_old_versions(tmp_path):
     key_file = tmp_path / "dt-api-key"
     key_file.write_text("super-secret-key\n")
@@ -140,6 +186,32 @@ def test_sync_image_sbom_reports_a_trivy_failure_without_raising(tmp_path):
     assert result.uploaded is False
     assert result.error
     assert session.calls == []
+
+
+def test_sync_image_sbom_forwards_container_knobs_to_trivy(tmp_path):
+    key_file = tmp_path / "dt-api-key"
+    key_file.write_text("super-secret-key\n")
+    dt_config = DependencyTrackConfig(base_url="https://skbom.example.org", api_key_file=str(key_file))
+    ref = parse_image_ref("nextcloud:34.0.4@sha256:" + "b" * 64)
+    captured = {}
+
+    def fake_runner(argv, capture_output, text, timeout):
+        captured["argv"] = argv
+        return FakeCompleted(0, stdout=json.dumps(CYCLONEDX_BOM))
+
+    result = sync_image_sbom(
+        estate="estate-a",
+        service="skhub-prod_nextcloud",
+        ref=ref,
+        raw_image="nextcloud:34.0.4@sha256:" + "b" * 64,
+        dt_config=dt_config,
+        session=FakeSession(),
+        subprocess_runner=fake_runner,
+        use_container=True,
+        cache_dir="/tmp/skpatch-trivy-cache",
+    )
+    assert result.uploaded is True
+    assert captured["argv"][0] == "docker"
 
 
 def test_sync_image_sbom_reports_a_missing_api_key_file_without_raising():
