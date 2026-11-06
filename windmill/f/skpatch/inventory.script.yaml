@@ -1,0 +1,37 @@
+summary: "skpatch: daily inventory"
+description: >
+  Lists every running Swarm service's pinned image, per configured estate.
+  Read-only (docker service ls/inspect over ssh). Wraps
+  skpatch.inventory.collect_estate_inventory. config_path must point at an
+  operator-owned config file reachable from the worker; see
+  examples/estate.example.yaml in smilinTux/skpatch.
+lock: ''
+concurrency_key: null
+concurrent_limit: null
+concurrency_time_window_s: null
+cache_ttl: null
+dedicated_worker: null
+ws_error_handler_muted: false
+priority: null
+restart_unless_cancelled: null
+tag: null
+timeout: null
+delete_after_use: false
+visible_to_runner_only: false
+no_main_func: null
+codebase: null
+schema:
+  $schema: "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  order:
+    - config_path
+    - estate
+  properties:
+    config_path:
+      type: string
+      description: "Path to the operator's estate config YAML, readable from this worker."
+    estate:
+      type: string
+      description: "Only inventory this estate; omit to inventory every configured estate."
+  required:
+    - config_path

@@ -1,0 +1,52 @@
+summary: "skpatch: classify findings into lanes and notify"
+description: >
+  Classifies a batch of Dependency-Track findings (plain dicts matching
+  skpatch.policy.Finding) into release lanes, fans same_day/watch findings
+  out to whichever notify adapters are configured, and upserts each into
+  the unified GTD. Wraps skpatch.policy.classify_findings and
+  skpatch.notify.notify_all/gtd_upsert_finding.
+lock: ''
+concurrency_key: null
+concurrent_limit: null
+concurrency_time_window_s: null
+cache_ttl: null
+dedicated_worker: null
+ws_error_handler_muted: false
+priority: null
+restart_unless_cancelled: null
+tag: null
+timeout: null
+delete_after_use: false
+visible_to_runner_only: false
+no_main_func: null
+codebase: null
+schema:
+  $schema: "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  order:
+    - config_path
+    - estate
+    - service
+    - image
+    - findings
+  properties:
+    config_path:
+      type: string
+      description: "Path to the operator's estate config YAML, readable from this worker."
+    estate:
+      type: string
+    service:
+      type: string
+    image:
+      type: string
+    findings:
+      type: array
+      description: "List of {cve_id, severity, fix_available, exposure, rebuild_available} objects."
+      items:
+        type: object
+  required:
+    - config_path
+    - estate
+    - service
+    - image
+    - findings

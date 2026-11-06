@@ -1,0 +1,31 @@
+summary: "skpatch: run Renovate"
+description: >
+  Runs the renovate/renovate container against the operator's configured
+  Forgejo/Gitea (or GitHub) endpoint. Wraps skpatch.renovate.run_renovate.
+  Requires a renovate block in config_path and Docker access on the worker.
+lock: ''
+concurrency_key: null
+concurrent_limit: null
+concurrency_time_window_s: null
+cache_ttl: null
+dedicated_worker: null
+ws_error_handler_muted: false
+priority: null
+restart_unless_cancelled: null
+tag: null
+timeout: 2400
+delete_after_use: false
+visible_to_runner_only: false
+no_main_func: null
+codebase: null
+schema:
+  $schema: "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  order:
+    - config_path
+  properties:
+    config_path:
+      type: string
+      description: "Path to the operator's estate config YAML, readable from this worker."
+  required:
+    - config_path

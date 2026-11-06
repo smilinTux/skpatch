@@ -1,0 +1,68 @@
+# skpatch estate configuration TEMPLATE. Copy this somewhere outside the
+# repo (e.g. ~/.skcapstone/skpatch/config.yaml on your control node) and
+# fill in your own hosts; never commit the filled-in version back here.
+# This file intentionally has no real hostnames, IPs, or client names in
+# it: estate topology and credentials are operational data, not framework
+# code, and this is a public repo. See skpatch.config.EstateConfig for the
+# full schema this file validates against.
+
+clusters:
+  estate-a:
+    manager_hosts: ["mgr-a1.example", "mgr-a2.example", "mgr-a3.example"]
+    jump: null # set this if mgr-a1 is only reachable through another host
+    docker_cmd: "sudo docker"
+  estate-b:
+    manager_hosts: ["mgr-b1.example", "mgr-b2.example", "mgr-b3.example"]
+    jump: "jumphost.example" # e.g. estate-b is only reachable through this host
+    ssh_user: "deploy"
+    ssh_identity: "~/.ssh/deploy_key"
+    docker_cmd: "sudo docker"
+
+# Runtime security floor table (see src/skpatch/data/floors.yaml for the
+# bundled table and how to extend it). Omit this key to use the bundled one.
+floors_file: null
+
+# Where state (last-seen digests) and the upstream-lookup cache live. Kept
+# outside the repo; absolute so a systemd unit with no shell env still finds
+# them.
+state_file: "~/.skcapstone/skpatch/state.json"
+cache_file: "~/.skcapstone/skpatch/registry_cache.json"
+cache_ttl_hours: 20
+
+# Upstream registry lookup behaviour (tag/digest comparisons; the sbom
+# module always pulls by exact digest, so these only bound the inventory
+# comparison path).
+registry:
+  max_retries: 4
+  backoff_base_seconds: 5
+  request_timeout_seconds: 15
+  mirror: null # e.g. "mirror.example.org" if you run a pull-through cache
+
+# Dependency-Track (skbom). The API key is read from api_key_file, never
+# inlined here.
+dependency_track:
+  base_url: "https://skbom.example.org"
+  api_key_file: "~/.skcapstone/secrets/skbom-api-key"
+  project_classifier: "APPLICATION"
+
+# Notification adapters. Every key is optional; a missing credentials file
+# just disables that adapter for the run (see skpatch.notify).
+notify:
+  skalert_credentials_file: "~/.skcapstone/secrets/skpatch-skalert.env"
+  talk_credentials_file: "~/.skcapstone/secrets/skpatch-talk.env"
+  talk_digest_room: "Ops Admin"
+  talk_urgent_room: "Ops Urgent"
+  gtd_context: "@fleet"
+  gtd_enabled: true
+
+# Renovate-as-a-Windmill-flow (see skpatch.renovate). The bot token is read
+# from token_file, never inlined here.
+renovate:
+  platform: "gitea"
+  endpoint: "https://skgit.example.org/api/v1"
+  token_file: "~/.skcapstone/secrets/renovate-token"
+  repositories:
+    - "estate-group/framework-repo"
+    - "estate-group/estate-a-instance"
+    - "estate-group/estate-b-instance"
+  image: "renovate/renovate:latest"

@@ -1,0 +1,46 @@
+summary: "skpatch: SBOM sync for one image digest"
+description: >
+  Runs Trivy (CycloneDX) against one repo:tag@digest reference and uploads
+  the result to Dependency-Track as project <estate>/<service>, version
+  <tag>@<digest>; marks any other version of that project inactive. Wraps
+  skpatch.sbom.sync_image_sbom. Requires a dependency_track block in
+  config_path, with api_key_file pointing at a readable, 0600 key file.
+lock: ''
+concurrency_key: null
+concurrent_limit: null
+concurrency_time_window_s: null
+cache_ttl: null
+dedicated_worker: null
+ws_error_handler_muted: false
+priority: null
+restart_unless_cancelled: null
+tag: null
+timeout: null
+delete_after_use: false
+visible_to_runner_only: false
+no_main_func: null
+codebase: null
+schema:
+  $schema: "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  order:
+    - config_path
+    - estate
+    - service
+    - raw_image
+  properties:
+    config_path:
+      type: string
+      description: "Path to the operator's estate config YAML, readable from this worker."
+    estate:
+      type: string
+    service:
+      type: string
+    raw_image:
+      type: string
+      description: "repo:tag@sha256:digest as reported by inventory.py."
+  required:
+    - config_path
+    - estate
+    - service
+    - raw_image

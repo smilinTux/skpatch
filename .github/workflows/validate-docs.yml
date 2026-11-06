@@ -1,0 +1,32 @@
+name: validate-docs
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+
+      - name: negative control (the gate must be able to fail)
+        run: |
+          tmpdir=$(mktemp -d)
+          printf 'a bad sentence %s a dash\n' "$(python3 -c 'print(chr(8212))')" > "$tmpdir/bad.md"
+          if python3 scripts/validate_docs.py "$tmpdir"; then
+            echo "::error::validate_docs.py did not fail on a planted em dash" >&2
+            exit 1
+          fi
+          echo "negative control passed: the gate correctly failed on a planted em dash"
+
+      - name: no em/en dashes, fences balanced
+        run: python3 scripts/validate_docs.py .

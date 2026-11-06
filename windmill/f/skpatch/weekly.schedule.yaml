@@ -1,0 +1,8 @@
+summary: "skpatch weekly Renovate + policy digest"
+schedule: "0 6 * * 1"
+timezone: "UTC"
+flow_path: f/skpatch/weekly
+is_flow: true
+enabled: true
+args:
+  config_path: "$res:f/skpatch/estate_config_path"

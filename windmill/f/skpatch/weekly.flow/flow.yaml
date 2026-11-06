@@ -1,0 +1,72 @@
+summary: "skpatch: weekly Renovate + policy digest"
+description: >
+  Runs every Monday at 06:00 (see the paired weekly.schedule.yaml in this
+  folder). Step 1 runs Renovate against the configured git host; step 2
+  classifies the week's Dependency-Track findings into lanes and fans out
+  the weekly digest via skpatch.notify. See docs/skpatch-program.md
+  "Pipeline" step 4. Schedule: "0 6 * * 1" (Monday 06:00, operator's
+  configured timezone).
+value:
+  modules:
+    - id: renovate
+      summary: "Run Renovate against the configured git host"
+      value:
+        type: script
+        path: f/skpatch/renovate
+        input_transforms:
+          config_path:
+            type: javascript
+            expr: "flow_input.config_path"
+    - id: policy_digest
+      summary: "Classify this week's findings and notify"
+      value:
+        type: script
+        path: f/skpatch/policy_alerts
+        input_transforms:
+          config_path:
+            type: javascript
+            expr: "flow_input.config_path"
+          estate:
+            type: javascript
+            expr: "flow_input.estate"
+          service:
+            type: javascript
+            expr: "flow_input.service"
+          image:
+            type: javascript
+            expr: "flow_input.image"
+          findings:
+            type: javascript
+            expr: "flow_input.findings"
+  failure_module: null
+schema:
+  $schema: "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  order:
+    - config_path
+    - estate
+    - service
+    - image
+    - findings
+  properties:
+    config_path:
+      type: string
+      description: "Path to the operator's estate config YAML, readable from every worker this flow runs on."
+    estate:
+      type: string
+    service:
+      type: string
+    image:
+      type: string
+    findings:
+      type: array
+      description: "This week's Dependency-Track findings to classify; typically fetched by an upstream step querying Dependency-Track's own API, which is out of scope for this flow."
+      items:
+        type: object
+  required:
+    - config_path
+    - estate
+    - service
+    - image
+    - findings
+same_worker: false

@@ -1,0 +1,12 @@
+# wmill sync configuration. See windmill/f/skpatch/README.md for the
+# workspace/folder convention and deploy instructions.
+defaultTs: bun
+includes:
+  - "windmill/**"
+excludes: []
+skipVariables: true
+skipResources: false
+skipResourceTypes: true
+skipSecrets: true
+includeSchedules: true
+includeTriggers: false

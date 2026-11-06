@@ -1,0 +1,64 @@
+summary: "skpatch: daily inventory + SBOM sync"
+description: >
+  Runs every day at 02:00 (see the paired daily.schedule.yaml in this
+  folder). Step 1 inventories every configured estate; step 2 loops over
+  the returned rows and syncs each image digest's SBOM to Dependency-Track.
+  Schedule: "0 2 * * *" (02:00 daily, operator's configured timezone) - see
+  docs/skpatch-program.md "Pipeline" steps 1-2.
+value:
+  modules:
+    - id: inventory
+      summary: "List every running service's pinned image"
+      value:
+        type: script
+        path: f/skpatch/inventory
+        input_transforms:
+          config_path:
+            type: javascript
+            expr: "flow_input.config_path"
+          estate:
+            type: javascript
+            expr: "flow_input.estate"
+    - id: sbom_sync
+      summary: "Sync each inventoried image's SBOM to Dependency-Track"
+      value:
+        type: forloopflow
+        iterator:
+          type: javascript
+          expr: "results.inventory.flatMap(r => r.services)"
+        skip_failures: true
+        modules:
+          - id: sbom
+            value:
+              type: script
+              path: f/skpatch/sbom
+              input_transforms:
+                config_path:
+                  type: javascript
+                  expr: "flow_input.config_path"
+                estate:
+                  type: javascript
+                  expr: "flow_input.iter.value.estate"
+                service:
+                  type: javascript
+                  expr: "flow_input.iter.value.service"
+                raw_image:
+                  type: javascript
+                  expr: "flow_input.iter.value.image"
+  failure_module: null
+schema:
+  $schema: "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  order:
+    - config_path
+    - estate
+  properties:
+    config_path:
+      type: string
+      description: "Path to the operator's estate config YAML, readable from every worker this flow runs on."
+    estate:
+      type: string
+      description: "Optional: only run this flow for one estate."
+  required:
+    - config_path
+same_worker: false
