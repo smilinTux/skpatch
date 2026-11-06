@@ -26,6 +26,9 @@ import re
 import shlex
 import subprocess
 from dataclasses import dataclass
+
+# This repo requires Python 3.11+ (see pyproject.toml), well past importlib.resources's 3.7 floor.
+# nosemgrep: python.lang.compatibility.python37.python37-compatibility-importlib2
 from importlib import resources
 from pathlib import Path
 from typing import Any

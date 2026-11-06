@@ -30,6 +30,12 @@ jobs:
         with: { python-version: "3.12" }
 
       - name: install scanners (gitleaks, trivy, semgrep)
+        # Official installer scripts from the tool's own repo (trivy) and a
+        # version-pinned release tarball fetched by exact tag (gitleaks),
+        # same pattern smilinTux/skstacks's skred-scan.yml accepts for the
+        # same reason: there is no non-curl install path for either tool on
+        # a bare ubuntu-latest runner, and the runner is ephemeral.
+        # nosemgrep: yaml.github-actions.security.gha-curl-pipe-shell
         run: |
           curl -fsSL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
             | sh -s -- -b "$HOME/.local/bin"
@@ -46,8 +52,11 @@ jobs:
         run: |
           trivy fs --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --exit-code 1 .
 
-      - name: semgrep (auto ruleset), fail on findings
-        run: semgrep scan --config auto --error --json --output "$GITHUB_WORKSPACE/semgrep-report.json" .
+      - name: semgrep (auto ruleset), fail on ERROR-severity findings
+        # --severity ERROR mirrors skstacks's "fail on HIGH+": a WARNING-level
+        # finding (e.g. an unpinned @v4 action tag) is tracked but does not
+        # block the gate on its own; an ERROR-level one does.
+        run: semgrep scan --config auto --severity ERROR --error --json --output "$GITHUB_WORKSPACE/semgrep-report.json" .
 
       - name: estate denylist gate (patterns from a private secret)
         # Fork PRs cannot read secrets; they still get the three scans above.
@@ -55,16 +64,19 @@ jobs:
         env:
           ESTATE_DENYLIST: ${{ secrets.ESTATE_DENYLIST }}
         run: |
-          printf '%s\n' "$ESTATE_DENYLIST" > "$RUNNER_TEMP/deny.txt"
-          # An unset secret produces an empty file: treat that as "nothing to
-          # check yet" (exit 0) rather than failing closed on every PR before
-          # an operator has provisioned the secret. Once provisioned, every
-          # non-empty line is matched case-insensitively against the tree.
+          # grep -f with an empty pattern file matches every line, so an
+          # unset secret must produce zero patterns to check, not one empty
+          # one. printf on an unset/empty var plus -v drop any blank or
+          # comment line, so deny.txt is truly empty until an operator
+          # provisions a real denylist.
+          printf '%s\n' "$ESTATE_DENYLIST" | grep -v '^[[:space:]]*$' | grep -v '^#' > "$RUNNER_TEMP/deny.txt" || true
           if [ -s "$RUNNER_TEMP/deny.txt" ]; then
             if grep -ril -f "$RUNNER_TEMP/deny.txt" --exclude-dir=.git .; then
               echo "::error::estate denylist match found above" >&2
               exit 1
             fi
+          else
+            echo "ESTATE_DENYLIST is not provisioned yet (or has no non-empty lines); nothing to check."
           fi
 
       - name: upload findings
