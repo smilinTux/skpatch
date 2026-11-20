@@ -26,7 +26,19 @@ cd skpatch
 pip install -e ".[dev]"
 cp examples/estate.example.yaml ~/.skcapstone/skpatch/config.yaml  # then edit it
 skpatch inventory --config ~/.skcapstone/skpatch/config.yaml
+skpatch updates --config ~/.skcapstone/skpatch/config.yaml --markdown -   # newer releases for what is running
 ```
+
+`skpatch updates` answers "what can we upgrade?" for the images an estate is
+**actually running**, including versions pinned in instance vaults that no
+repo scanner can read. It inventories the estate, writes one throwaway
+docker-compose manifest per estate with exactly those image references, runs
+Renovate in `--platform=local --dry-run=lookup` mode over it (nothing is
+pushed, no PR is opened), and reports per image the newest patch, minor and
+major, plus "rebuild" when the same tag has a newer digest. Majors of data
+stores (postgres, mariadb, redis) need a migration plan, not an image swap.
+The Windmill script `f/skpatch/updates` runs it daily (`updates.schedule.yaml`,
+11:00 UTC) and posts a one-line summary to the Talk digest room.
 
 ## What this is
 

@@ -22,10 +22,12 @@ import click
 from skpatch import dtrack as dtrack_mod
 from skpatch import exposure as exposure_mod
 from skpatch import inventory as inventory_mod
+from skpatch import notify as notify_mod
 from skpatch import policy as policy_mod
 from skpatch import probe as probe_mod
 from skpatch import renovate as renovate_mod
 from skpatch import sbom as sbom_mod
+from skpatch import updates as updates_mod
 from skpatch.config import load_config
 from skpatch.imageref import parse_image_ref
 
@@ -170,6 +172,61 @@ def policy(findings_path) -> None:
     buckets = policy_mod.classify_findings(findings)
     out = {lane.value: [asdict(f) for f in items] for lane, items in buckets.items()}
     click.echo(_dump(out))
+
+
+@main.command()
+@click.option("--config", "config_path", required=True, help="Path to the operator's estate config YAML.")
+@click.option("--estate", "estate_name", default=None, help="Only this estate (default: all configured).")
+@click.option("--markdown", "markdown_path", default=None, help="Also write the report here ('-' = stdout).")
+@click.option("--notify/--no-notify", default=False, help="Post a one-line summary to the Talk digest room.")
+def updates(config_path: str, estate_name: str | None, markdown_path: str | None, notify: bool) -> None:
+    """Newer releases (patch/minor/major/rebuild) for every image an estate is running."""
+    from pathlib import Path
+
+    cfg = load_config(config_path)
+    estates = {estate_name: cfg.clusters[estate_name]} if estate_name else cfg.clusters
+    if not estates:
+        click.echo("no estates configured", err=True)
+        raise SystemExit(1)
+    inventories = [
+        inventory_mod.collect_estate_inventory(
+            name, c.manager_hosts, jump=c.jump, user=c.ssh_user, identity=c.ssh_identity
+        )
+        for name, c in estates.items()
+    ]
+    unreachable = [i.estate for i in inventories if i.unreachable]
+    token = None
+    if cfg.updates.github_token_file:
+        tp = Path(cfg.updates.github_token_file).expanduser()
+        token = tp.read_text().strip() if tp.is_file() else None
+    rows, error = updates_mod.run_lookup(
+        inventories,
+        command=cfg.updates.command,
+        image=cfg.updates.image,
+        github_token=token,
+        timeout=cfg.updates.timeout_seconds,
+    )
+    report = updates_mod.render_markdown(rows)
+    if markdown_path == "-":
+        click.echo(report)
+    elif markdown_path:
+        Path(markdown_path).expanduser().write_text(report)
+    if notify and cfg.notify.talk_credentials_file:
+        try:
+            creds = notify_mod.load_talk_credentials(cfg.notify.talk_credentials_file)
+            notify_mod.post_talk(
+                creds,
+                title="skpatch: running-image updates",
+                summary=updates_mod.summary_line(rows),
+                severity="info",
+                room=cfg.notify.talk_digest_room,
+                ref_id="skpatch-updates",
+            )
+        except notify_mod.NotConfigured as exc:
+            click.echo(f"notify skipped: {exc}", err=True)
+    click.echo(_dump({"unreachable": unreachable, "error": error, "updates": rows}))
+    if error or unreachable:
+        raise SystemExit(1)
 
 
 @main.command()

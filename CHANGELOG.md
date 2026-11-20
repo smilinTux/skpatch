@@ -8,6 +8,10 @@ uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `skpatch updates` / `skpatch.updates`: newer releases (patch, minor, major,
+  same-tag rebuild) for every image an estate is running, via a Renovate
+  `--dry-run=lookup` over the live inventory; markdown report, Talk summary,
+  and the daily Windmill script `f/skpatch/updates`.
 - `src/skpatch/` Python package: `config` (pydantic estate-config schema),
   `inventory` (read-only Swarm inventory over ssh), `exposure` (Traefik
   label classification into `public`/`sso`/`internal`), `probe` (in-image
