@@ -110,9 +110,28 @@ def lookup_argv(command: list[str] | None, image: str, workdir: str) -> list[str
     """
     if command:
         return list(command)
-    return ["docker", "run", "--rm", "-v", f"{workdir}:/usr/src/app", "-w", "/usr/src/app",
-            "-e", "RENOVATE_PLATFORM", "-e", "RENOVATE_DRY_RUN", "-e", "RENOVATE_REQUIRE_CONFIG",
-            "-e", "LOG_LEVEL", "-e", "LOG_FORMAT", "-e", "RENOVATE_GITHUB_COM_TOKEN", image]
+    return [
+        "docker",
+        "run",
+        "--rm",
+        "-v",
+        f"{workdir}:/usr/src/app",
+        "-w",
+        "/usr/src/app",
+        "-e",
+        "RENOVATE_PLATFORM",
+        "-e",
+        "RENOVATE_DRY_RUN",
+        "-e",
+        "RENOVATE_REQUIRE_CONFIG",
+        "-e",
+        "LOG_LEVEL",
+        "-e",
+        "LOG_FORMAT",
+        "-e",
+        "RENOVATE_GITHUB_COM_TOKEN",
+        image,
+    ]
 
 
 def lookup_env(github_token: str | None) -> dict[str, str]:
@@ -134,12 +153,23 @@ def _git_init(workdir: str, runner) -> None:
     for argv in (
         ["git", "init", "-q"],
         ["git", "add", "-A"],
-        ["git", "-c", "user.email=skpatch@localhost", "-c", "user.name=skpatch", "commit", "-qm", "inventory"],
+        [
+            "git",
+            "-c",
+            "user.email=skpatch@localhost",
+            "-c",
+            "user.name=skpatch",
+            "commit",
+            "-qm",
+            "inventory",
+        ],
     ):
         runner(argv, cwd=workdir, capture_output=True, text=True, check=True)
 
 
-def parse_lookup_log(log_text: str, services: dict[tuple[str, str], list[str]] | None = None) -> list[ImageUpdate]:
+def parse_lookup_log(
+    log_text: str, services: dict[tuple[str, str], list[str]] | None = None
+) -> list[ImageUpdate]:
     """Turn Renovate's JSON log into update rows.
 
     Renovate logs the full extraction (``config`` keyed by manager, each with
@@ -176,7 +206,10 @@ def parse_lookup_log(log_text: str, services: dict[tuple[str, str], list[str]] |
                         setattr(row, t, str(u.get("newValue") or u.get("newVersion") or ""))
                 raw = dep.get("replaceString") or ""
                 names = services.get((estate, raw)) or [
-                    n for (e, img), ns in services.items() if e == estate and _split_image(img) == (repo, cur) for n in ns
+                    n
+                    for (e, img), ns in services.items()
+                    if e == estate and _split_image(img) == (repo, cur)
+                    for n in ns
                 ]
                 row.services = sorted(set(row.services) | set(names))
         break  # the extraction is logged once
@@ -208,8 +241,14 @@ def run_lookup(
         _git_init(workdir, runner)
         env = {**os.environ, **lookup_env(github_token)}
         try:
-            proc = runner(lookup_argv(command, image, workdir), cwd=workdir, env=env,
-                          capture_output=True, text=True, timeout=timeout)
+            proc = runner(
+                lookup_argv(command, image, workdir),
+                cwd=workdir,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
         except subprocess.TimeoutExpired:
             return [], "renovate lookup timed out"
         rows = parse_lookup_log(proc.stdout, services)
@@ -229,9 +268,13 @@ def render_markdown(rows: list[ImageUpdate], *, title: str = "Running-image upda
     for estate in sorted(by):
         rs = by[estate]
         counts = {k: sum(1 for r in rs if getattr(r, k)) for k in ("patch", "minor", "major")}
-        out += [f"## {estate} ({len(rs)} images: {counts['patch']} patch, {counts['minor']} minor, "
-                f"{counts['major']} major)", "",
-                "| Image | Running | Patch | Minor | Major | Services |", "|---|---|---|---|---|---|"]
+        out += [
+            f"## {estate} ({len(rs)} images: {counts['patch']} patch, {counts['minor']} minor, "
+            f"{counts['major']} major)",
+            "",
+            "| Image | Running | Patch | Minor | Major | Services |",
+            "|---|---|---|---|---|---|",
+        ]
         for r in rs:
             patch = r.patch or ("rebuild" if r.digest else "")
             svcs = ", ".join(s.rsplit("_", 1)[-1] for s in r.services)[:80]

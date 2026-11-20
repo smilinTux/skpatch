@@ -29,28 +29,54 @@ def inv(estate="estate-a", unreachable=False):
         estate=estate,
         manager_used=None if unreachable else "mgr1",
         unreachable=unreachable,
-        services=[] if unreachable else [
-            ServiceImage(estate, "skgallery-prod_immich-server", IMMICH),
-            ServiceImage(estate, "skhub-prod_db", PG),
-            ServiceImage(estate, "skorch-prod_db", PG),
-            ServiceImage(estate, "skhub-prod_redis", REDIS),
-        ],
+        services=(
+            []
+            if unreachable
+            else [
+                ServiceImage(estate, "skgallery-prod_immich-server", IMMICH),
+                ServiceImage(estate, "skhub-prod_db", PG),
+                ServiceImage(estate, "skorch-prod_db", PG),
+                ServiceImage(estate, "skhub-prod_redis", REDIS),
+            ]
+        ),
     )
 
 
 def lookup_log(estate="estate-a"):
     deps = [
-        {"depName": "ghcr.io/immich-app/immich-server", "currentValue": "v3.3.5", "replaceString": IMMICH,
-         "updates": [{"updateType": "patch", "newValue": "v3.3.6"}, {"updateType": "minor", "newValue": "v3.4.2"}]},
-        {"depName": "postgres", "currentValue": "16.15", "replaceString": PG,
-         "updates": [{"updateType": "minor", "newValue": "16.16"}, {"updateType": "major", "newValue": "19.0"}]},
-        {"depName": "redis", "currentValue": "8.10.3-alpine", "replaceString": REDIS,
-         "updates": [{"updateType": "digest", "newValue": "8.10.3-alpine", "newDigest": "sha256:" + "d" * 64},
-                     {"updateType": "pinDigest", "newValue": "8.10.3-alpine"}]},
+        {
+            "depName": "ghcr.io/immich-app/immich-server",
+            "currentValue": "v3.3.5",
+            "replaceString": IMMICH,
+            "updates": [
+                {"updateType": "patch", "newValue": "v3.3.6"},
+                {"updateType": "minor", "newValue": "v3.4.2"},
+            ],
+        },
+        {
+            "depName": "postgres",
+            "currentValue": "16.15",
+            "replaceString": PG,
+            "updates": [
+                {"updateType": "minor", "newValue": "16.16"},
+                {"updateType": "major", "newValue": "19.0"},
+            ],
+        },
+        {
+            "depName": "redis",
+            "currentValue": "8.10.3-alpine",
+            "replaceString": REDIS,
+            "updates": [
+                {"updateType": "digest", "newValue": "8.10.3-alpine", "newDigest": "sha256:" + "d" * 64},
+                {"updateType": "pinDigest", "newValue": "8.10.3-alpine"},
+            ],
+        },
         {"depName": "busybox", "currentValue": "1.36", "updates": [{"updateType": "pinDigest"}]},
     ]
-    extraction = {"msg": "packageFiles with updates", "config": {"docker-compose": [
-        {"packageFile": f"{estate}/docker-compose.yml", "deps": deps}]}}
+    extraction = {
+        "msg": "packageFiles with updates",
+        "config": {"docker-compose": [{"packageFile": f"{estate}/docker-compose.yml", "deps": deps}]},
+    }
     return "\n".join([json.dumps({"msg": "noise"}), json.dumps(extraction), "not json"])
 
 
@@ -65,7 +91,10 @@ def test_build_manifests_writes_one_compose_per_reachable_estate(tmp_path):
 
 
 def test_parse_ranks_majors_first_and_drops_pin_noise():
-    services = {("estate-a", PG): ["skhub-prod_db", "skorch-prod_db"], ("estate-a", IMMICH): ["skgallery-prod_immich-server"]}
+    services = {
+        ("estate-a", PG): ["skhub-prod_db", "skorch-prod_db"],
+        ("estate-a", IMMICH): ["skgallery-prod_immich-server"],
+    }
     rows = parse_lookup_log(lookup_log(), services)
     assert [r.image for r in rows] == ["postgres", "ghcr.io/immich-app/immich-server", "redis"]
     pg, immich, redis = rows
