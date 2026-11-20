@@ -91,6 +91,21 @@ class RenovateConfig(BaseModel):
     image: str = "renovate/renovate:latest"
 
 
+class UpdatesConfig(BaseModel):
+    """``skpatch updates``: newer releases for the images an estate runs.
+
+    ``command`` runs Renovate directly (e.g. ``["npx", "-y", "renovate@41"]``);
+    without it the ``image`` container is used. ``github_token_file`` is
+    optional (github.com tag lookups, rate limits) and is never logged.
+    """
+
+    command: list[str] | None = None
+    image: str = "renovate/renovate:41"
+    github_token_file: str | None = None
+    timeout_seconds: float = 1800
+    report_dir: str = "~/.skcapstone/skpatch/updates"
+
+
 class EstateConfig(BaseModel):
     """The full, validated operator configuration."""
 
@@ -104,6 +119,7 @@ class EstateConfig(BaseModel):
     trivy: TrivyConfig = Field(default_factory=TrivyConfig)
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
     renovate: RenovateConfig | None = None
+    updates: UpdatesConfig = Field(default_factory=UpdatesConfig)
 
     @field_validator("clusters")
     @classmethod
