@@ -75,3 +75,12 @@ renovate:
     - "estate-group/estate-a-instance"
     - "estate-group/estate-b-instance"
   image: "renovate/renovate:latest"
+
+# skpatch updates: newer releases for the images each estate is running.
+# All optional. Without `command` the pinned container below is used.
+updates:
+  # command: ["npx", "-y", "renovate@41"]
+  image: "renovate/renovate:41"
+  github_token_file: "~/.skcapstone/secrets/github-readonly-token"   # optional, rate limits only
+  timeout_seconds: 1800
+  report_dir: "~/.skcapstone/skpatch/updates"

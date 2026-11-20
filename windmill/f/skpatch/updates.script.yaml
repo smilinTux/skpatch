@@ -1,0 +1,42 @@
+summary: 'skpatch: running-image updates'
+description: 'Every day: inventories each configured estate (read-only), runs Renovate
+  in --platform=local --dry-run=lookup over exactly the running image refs, writes
+  a ranked patch/minor/major report under updates.report_dir and posts one summary
+  line to the Talk digest room. Wraps skpatch.updates.run_lookup.
+
+  '
+lock: ''
+concurrency_key: null
+concurrent_limit: null
+concurrency_time_window_s: null
+cache_ttl: null
+dedicated_worker: null
+ws_error_handler_muted: false
+priority: null
+restart_unless_cancelled: null
+tag: null
+timeout: 2400
+delete_after_use: false
+visible_to_runner_only: false
+no_main_func: null
+codebase: null
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  order:
+  - config_path
+  - estate
+  - post
+  properties:
+    config_path:
+      type: string
+      description: Path to the operator's estate config YAML, readable from this worker.
+    estate:
+      type: string
+      description: Only this estate; omit for every configured estate.
+    post:
+      type: boolean
+      default: true
+      description: Post the summary line to the Talk digest room.
+  required:
+  - config_path
