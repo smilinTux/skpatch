@@ -185,7 +185,7 @@ def _dedupe_items(items: list[Any]) -> list[Any]:
 
 def dedupe_bom(bom: dict[str, Any]) -> dict[str, Any]:
     """Drop exact duplicate entries from ``components`` (at every nesting
-    level) and ``dependencies``.
+    level), ``dependencies`` and each dependency's ``dependsOn``.
 
     trivy can list the same component twice (seen with cargo crates in
     n8n and Windmill images). CycloneDX requires unique array items, so
@@ -204,7 +204,12 @@ def dedupe_bom(bom: dict[str, Any]) -> dict[str, Any]:
     if isinstance(out.get("components"), list):
         out["components"] = _walk(out["components"])
     if isinstance(out.get("dependencies"), list):
-        out["dependencies"] = _dedupe_items(out["dependencies"])
+        deps = []
+        for dep in _dedupe_items(out["dependencies"]):
+            if isinstance(dep, dict) and isinstance(dep.get("dependsOn"), list):
+                dep = {**dep, "dependsOn": _dedupe_items(dep["dependsOn"])}
+            deps.append(dep)
+        out["dependencies"] = deps
     return out
 
 
