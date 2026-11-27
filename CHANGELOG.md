@@ -8,6 +8,15 @@ uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `skpatch sbom --on-node` scans an image that exists only on an estate
+  node (built there and never pushed, or named for an estate-local registry
+  such as `127.0.0.1:5000/...`): it finds the node running the service's
+  task and runs the pinned Trivy container there against that node's Docker
+  daemon, then uploads as usual. A tag-only image gets the node's image id
+  as its digest, so rebuilding a mutable tag makes a new version.
+  `clusters.<estate>.node_hosts` maps swarm node names to ssh hosts. A
+  service with no running task (scaled to 0) exits 3, not 1, so a caller can
+  count it as skipped.
 - `skpatch sbom` arranges Dependency-Track projects as estate, then stack,
   then service: versionless collection projects `<estate>`
   (`AGGREGATE_DIRECT_CHILDREN`) and `<estate>/<stack>`

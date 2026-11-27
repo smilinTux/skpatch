@@ -31,6 +31,8 @@ from skpatch import updates as updates_mod
 from skpatch.config import load_config
 from skpatch.imageref import parse_image_ref
 
+NO_RUNNING_TASK_EXIT = 3
+
 
 def _dump(obj: Any) -> str:
     def default(o: Any) -> Any:
@@ -78,7 +80,12 @@ def inventory(config_path: str, estate_name: str | None) -> None:
 @click.option("--estate", "estate_name", required=True)
 @click.option("--service", "service_name", required=True)
 @click.option("--image", "raw_image", required=True, help="repo:tag@sha256:digest as reported by Swarm.")
-def sbom(config_path: str, estate_name: str, service_name: str, raw_image: str) -> None:
+@click.option(
+    "--on-node",
+    is_flag=True,
+    help="Run Trivy on the swarm node running the service (images that exist only on the estate).",
+)
+def sbom(config_path: str, estate_name: str, service_name: str, raw_image: str, on_node: bool) -> None:
     """Scan one image digest with Trivy and upload the SBOM to Dependency-Track."""
     import requests
 
@@ -88,6 +95,29 @@ def sbom(config_path: str, estate_name: str, service_name: str, raw_image: str) 
         raise SystemExit(1)
 
     ref = parse_image_ref(raw_image)
+    trivy_kw: dict[str, Any] = {
+        "use_container": cfg.trivy.use_container,
+        "container_image": cfg.trivy.container_image or sbom_mod.TRIVY_IMAGE,
+        "docker_cmd": cfg.trivy.docker_cmd,
+        "cache_dir": cfg.trivy.cache_dir,
+    }
+    if on_node:
+        from skpatch import onnode as onnode_mod
+
+        cluster = cfg.clusters.get(estate_name)
+        node = onnode_mod.locate_node(cluster, service_name) if cluster else None
+        if node is None:
+            # distinct exit code: a scaled-to-zero service is nothing to scan, not a failure
+            click.echo(f"no running task found for {service_name} on estate {estate_name}", err=True)
+            raise SystemExit(NO_RUNNING_TASK_EXIT)
+        host = onnode_mod.node_host(cluster, node)
+        ref = onnode_mod.pin_to_local_id(ref, raw_image, host, cluster)
+        trivy_kw = {
+            "use_container": False,
+            "subprocess_runner": onnode_mod.trivy_runner(
+                host, cluster, container_image=cfg.trivy.container_image or sbom_mod.TRIVY_IMAGE
+            ),
+        }
     result = sbom_mod.sync_image_sbom(
         estate=estate_name,
         service=service_name,
@@ -95,10 +125,7 @@ def sbom(config_path: str, estate_name: str, service_name: str, raw_image: str) 
         raw_image=raw_image,
         dt_config=cfg.dependency_track,
         session=requests.Session(),
-        use_container=cfg.trivy.use_container,
-        container_image=cfg.trivy.container_image or sbom_mod.TRIVY_IMAGE,
-        docker_cmd=cfg.trivy.docker_cmd,
-        cache_dir=cfg.trivy.cache_dir,
+        **trivy_kw,
     )
     click.echo(_dump(result))
     if not result.uploaded:

@@ -316,3 +316,30 @@ def test_probe_command_evaluates_a_matching_runtime(tmp_path, monkeypatch):
     assert result.exit_code == 0
     payload = json.loads(result.output)
     assert payload[0]["below_floor"] is True
+
+
+def test_sbom_on_node_without_a_running_task_exits_nonzero_and_uploads_nothing(tmp_path, monkeypatch):
+    config_path = write_config(
+        tmp_path,
+        "clusters:\n  gen:\n    manager_hosts: [mgr1]\n"
+        "dependency_track:\n  base_url: https://dt.example\n  api_key_file: /nonexistent\n",
+    )
+    monkeypatch.setattr("skpatch.onnode.locate_node", lambda cluster, service: None)
+    called = []
+    monkeypatch.setattr(cli.sbom_mod, "sync_image_sbom", lambda **kw: called.append(kw))
+    result = CliRunner().invoke(
+        cli.main,
+        [
+            "sbom",
+            "--config",
+            str(config_path),
+            "--estate",
+            "gen",
+            "--service",
+            "s_x",
+            "--image",
+            "a/b:1",
+            "--on-node",
+        ],
+    )
+    assert result.exit_code == cli.NO_RUNNING_TASK_EXIT and called == []
