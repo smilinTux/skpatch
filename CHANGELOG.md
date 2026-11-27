@@ -8,6 +8,9 @@ uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Container-mode trivy (`dependency_track.trivy.use_container`) mounts the
+  host docker config read-only, so private registry images (skgit) scan
+  instead of failing with "unable to find the specified image".
 - `skpatch.sbom.upload_bom` drops exact duplicate `components` (every level)
   and `dependencies` before upload. trivy lists some cargo crates twice, and
   Dependency-Track's CycloneDX schema check answered 400 to the whole BOM

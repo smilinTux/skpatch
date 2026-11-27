@@ -37,6 +37,18 @@ from skpatch.imageref import ImageRef
 TRIVY_IMAGE = "aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb"
 
 
+def default_docker_config() -> str | None:
+    """The host's docker client config (``$DOCKER_CONFIG/config.json`` or
+    ``~/.docker/config.json``) if it exists, else None. A container-mode
+    trivy run mounts it read-only so it can pull private registry images
+    (for example skgit's) with the same logins the host already has."""
+    import os
+
+    base = os.environ.get("DOCKER_CONFIG") or str(Path("~/.docker").expanduser())
+    path = Path(base) / "config.json"
+    return str(path) if path.is_file() else None
+
+
 def default_trivy_cache_dir() -> str:
     """Where a container-mode trivy run persists its vulnerability DB cache
     between runs (bind-mounted at /root/.cache/trivy in the container), so a
@@ -86,6 +98,7 @@ def run_trivy_sbom(
     container_image: str = TRIVY_IMAGE,
     docker_cmd: str = "docker",
     cache_dir: str | None = None,
+    docker_config: str | None = "auto",
     timeout: float = 300,
     runner=None,
 ) -> dict[str, Any]:
@@ -102,6 +115,10 @@ def run_trivy_sbom(
       a floating tag) via ``docker_cmd run --rm``, bind-mounting
       ``cache_dir`` (default ``default_trivy_cache_dir()``) at
       ``/root/.cache/trivy`` so the vulnerability DB persists between runs.
+      ``docker_config`` (default ``"auto"``: ``default_docker_config()``;
+      None disables it) is mounted read-only at ``/root/.docker/config.json``
+      so private registries the host is logged in to can be pulled. Only
+      inline ``auth`` entries work this way, not a credential helper.
 
     Raises SbomError on a non-zero exit or unparsable output; never raises a
     raw subprocess exception so a scheduled run can log and skip one bad
@@ -116,6 +133,11 @@ def run_trivy_sbom(
             "--rm",
             "-v",
             f"{resolved_cache_dir}:/root/.cache/trivy",
+        ]
+        resolved_docker_config = default_docker_config() if docker_config == "auto" else docker_config
+        if resolved_docker_config:
+            argv += ["-v", f"{resolved_docker_config}:/root/.docker/config.json:ro"]
+        argv += [
             container_image,
             "image",
             "--quiet",

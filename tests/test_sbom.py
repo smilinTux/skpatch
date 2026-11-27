@@ -269,3 +269,34 @@ def test_upload_bom_sends_a_deduplicated_bom():
     assert method == "put"
     sent = json.loads(base64.b64decode(kwargs["json"]["bom"]))
     assert sent["components"] == [crate]
+
+
+def test_run_trivy_sbom_container_mounts_the_docker_config_read_only(tmp_path, monkeypatch):
+    cfg = tmp_path / "config.json"
+    cfg.write_text("{}")
+    monkeypatch.setenv("DOCKER_CONFIG", str(tmp_path))
+    captured = {}
+
+    def fake_runner(argv, capture_output, text, timeout):
+        captured["argv"] = argv
+        return FakeCompleted(0, stdout=json.dumps(CYCLONEDX_BOM))
+
+    run_trivy_sbom("skgit.example/x/y:1", use_container=True, cache_dir="/c", runner=fake_runner)
+    argv = captured["argv"]
+    assert f"{cfg}:/root/.docker/config.json:ro" in argv
+    assert argv.index(f"{cfg}:/root/.docker/config.json:ro") < argv.index(TRIVY_IMAGE)
+
+    run_trivy_sbom("x:1", use_container=True, cache_dir="/c", docker_config=None, runner=fake_runner)
+    assert not any("/root/.docker/config.json" in a for a in captured["argv"])
+
+
+def test_run_trivy_sbom_container_skips_a_missing_docker_config(tmp_path, monkeypatch):
+    monkeypatch.setenv("DOCKER_CONFIG", str(tmp_path / "nope"))
+    captured = {}
+
+    def fake_runner(argv, capture_output, text, timeout):
+        captured["argv"] = argv
+        return FakeCompleted(0, stdout=json.dumps(CYCLONEDX_BOM))
+
+    run_trivy_sbom("x:1", use_container=True, cache_dir="/c", runner=fake_runner)
+    assert not any("/root/.docker/config.json" in a for a in captured["argv"])
