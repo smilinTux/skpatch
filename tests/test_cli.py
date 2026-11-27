@@ -342,4 +342,4 @@ def test_sbom_on_node_without_a_running_task_exits_nonzero_and_uploads_nothing(t
             "--on-node",
         ],
     )
-    assert result.exit_code != 0 and called == []
+    assert result.exit_code == cli.NO_RUNNING_TASK_EXIT and called == []

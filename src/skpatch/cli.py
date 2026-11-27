@@ -31,6 +31,8 @@ from skpatch import updates as updates_mod
 from skpatch.config import load_config
 from skpatch.imageref import parse_image_ref
 
+NO_RUNNING_TASK_EXIT = 3
+
 
 def _dump(obj: Any) -> str:
     def default(o: Any) -> Any:
@@ -105,8 +107,9 @@ def sbom(config_path: str, estate_name: str, service_name: str, raw_image: str, 
         cluster = cfg.clusters.get(estate_name)
         node = onnode_mod.locate_node(cluster, service_name) if cluster else None
         if node is None:
+            # distinct exit code: a scaled-to-zero service is nothing to scan, not a failure
             click.echo(f"no running task found for {service_name} on estate {estate_name}", err=True)
-            raise SystemExit(1)
+            raise SystemExit(NO_RUNNING_TASK_EXIT)
         host = onnode_mod.node_host(cluster, node)
         ref = onnode_mod.pin_to_local_id(ref, raw_image, host, cluster)
         trivy_kw = {
