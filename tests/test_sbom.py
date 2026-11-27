@@ -304,3 +304,10 @@ def test_run_trivy_sbom_container_skips_a_missing_docker_config(tmp_path, monkey
 
     run_trivy_sbom("x:1", use_container=True, cache_dir="/c", runner=fake_runner)
     assert not any("/root/.docker/config.json" in a for a in captured["argv"])
+
+
+def test_dedupe_bom_drops_repeated_refs_inside_depends_on():
+    bom = {"dependencies": [{"ref": "a", "dependsOn": ["b", "c", "b"]}, {"ref": "d"}]}
+    out = dedupe_bom(bom)
+    assert out["dependencies"] == [{"ref": "a", "dependsOn": ["b", "c"]}, {"ref": "d"}]
+    assert bom["dependencies"][0]["dependsOn"] == ["b", "c", "b"]  # input left alone

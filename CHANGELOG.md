@@ -8,6 +8,8 @@ uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `dedupe_bom` also drops repeated refs inside each `dependsOn` list (the
+  Windmill 1.882.0 BOM had 36 such lists, and Dependency-Track rejected it).
 - Container-mode trivy (`dependency_track.trivy.use_container`) mounts the
   host docker config read-only, so private registry images (skgit) scan
   instead of failing with "unable to find the specified image".
