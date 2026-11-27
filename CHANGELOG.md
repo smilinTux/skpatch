@@ -8,6 +8,10 @@ uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `skpatch.sbom.upload_bom` drops exact duplicate `components` (every level)
+  and `dependencies` before upload. trivy lists some cargo crates twice, and
+  Dependency-Track's CycloneDX schema check answered 400 to the whole BOM
+  (n8n and Windmill images on nor, 2026-11-27).
 - `skpatch sbom` / `skpatch.sbom.upload_bom` uploads with PUT. Dependency-Track
   takes the JSON (base64 BOM) body only on `PUT /api/v1/bom`; the old POST got
   415 on every upload, so nothing ever reached skbom (found on nor 2026-11-26).

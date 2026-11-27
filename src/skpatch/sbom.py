@@ -149,6 +149,43 @@ def _read_api_key(path: str) -> str:
     return key
 
 
+def _dedupe_items(items: list[Any]) -> list[Any]:
+    seen: set[str] = set()
+    out: list[Any] = []
+    for item in items:
+        key = json.dumps(item, sort_keys=True)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(item)
+    return out
+
+
+def dedupe_bom(bom: dict[str, Any]) -> dict[str, Any]:
+    """Drop exact duplicate entries from ``components`` (at every nesting
+    level) and ``dependencies``.
+
+    trivy can list the same component twice (seen with cargo crates in
+    n8n and Windmill images). CycloneDX requires unique array items, so
+    Dependency-Track's schema validation answers 400 to the whole BOM.
+    Only byte-identical entries are dropped; nothing is merged.
+    """
+
+    def _walk(components: list[Any]) -> list[Any]:
+        unique = _dedupe_items(components)
+        for comp in unique:
+            if isinstance(comp, dict) and isinstance(comp.get("components"), list):
+                comp["components"] = _walk(comp["components"])
+        return unique
+
+    out = dict(bom)
+    if isinstance(out.get("components"), list):
+        out["components"] = _walk(out["components"])
+    if isinstance(out.get("dependencies"), list):
+        out["dependencies"] = _dedupe_items(out["dependencies"])
+    return out
+
+
 def upload_bom(
     session: _HttpSession,
     *,
@@ -169,7 +206,7 @@ def upload_bom(
         "projectName": project_name,
         "projectVersion": project_version,
         "autoCreate": True,
-        "bom": base64.b64encode(json.dumps(bom).encode()).decode(),
+        "bom": base64.b64encode(json.dumps(dedupe_bom(bom)).encode()).decode(),
     }
     # PUT, not POST: Dependency-Track takes a JSON (base64 BOM) upload only on
     # PUT /api/v1/bom; POST there is multipart and answers 415 to JSON.

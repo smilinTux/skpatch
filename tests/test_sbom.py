@@ -14,11 +14,13 @@ from skpatch.imageref import parse_image_ref
 from skpatch.sbom import (
     TRIVY_IMAGE,
     SbomError,
+    dedupe_bom,
     default_trivy_cache_dir,
     project_name_for,
     project_version_for,
     run_trivy_sbom,
     sync_image_sbom,
+    upload_bom,
 )
 
 
@@ -235,3 +237,35 @@ def test_sync_image_sbom_reports_a_missing_api_key_file_without_raising():
     )
     assert result.uploaded is False
     assert "does not exist" in result.error
+
+
+def test_dedupe_bom_drops_exact_duplicate_components_and_dependencies():
+    crate = {"bom-ref": "pkg:cargo/aho-corasick@1.1.4", "name": "aho-corasick", "version": "1.1.4"}
+    other = {"bom-ref": "pkg:cargo/aho-corasick@1.1.4", "name": "aho-corasick", "version": "1.1.4", "x": 1}
+    nested = {"bom-ref": "app", "name": "app", "components": [crate, dict(crate)]}
+    dep = {"ref": "app", "dependsOn": ["pkg:cargo/aho-corasick@1.1.4"]}
+    bom = {"bomFormat": "CycloneDX", "components": [crate, dict(crate), other, nested], "dependencies": [dep, dict(dep)]}
+    out = dedupe_bom(bom)
+    # byte-identical entries go, a near duplicate stays (nothing is merged)
+    assert out["components"] == [crate, other, {"bom-ref": "app", "name": "app", "components": [crate]}]
+    assert out["dependencies"] == [dep]
+    assert len(bom["components"]) == 4  # input left alone
+
+
+def test_upload_bom_sends_a_deduplicated_bom():
+    import base64
+
+    crate = {"bom-ref": "c", "name": "c"}
+    session = FakeSession()
+    upload_bom(
+        session,
+        base_url="https://dt.example",
+        api_key="k",
+        project_name="nor/x",
+        project_version="1@sha256:0",
+        bom={"bomFormat": "CycloneDX", "components": [crate, dict(crate)]},
+    )
+    (method, _url, kwargs), = session.calls
+    assert method == "put"
+    sent = json.loads(base64.b64decode(kwargs["json"]["bom"]))
+    assert sent["components"] == [crate]
