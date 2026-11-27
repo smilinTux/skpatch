@@ -26,6 +26,9 @@ from skpatch.imageref import ImageRef
 from skpatch.inventory import _first_reachable_manager
 
 NODE_CACHE_DIR = "/var/cache/skpatch-trivy"
+# Estate nodes are often busy, and some local images are large (a 4.2 GB ML
+# worker took over Trivy's default 5 minutes on a loaded nam node).
+NODE_SCAN_TIMEOUT_SECONDS = 1200
 
 
 def _ssh_kw(cluster: ClusterConfig) -> dict:
@@ -53,21 +56,24 @@ def node_host(cluster: ClusterConfig, node: str) -> str:
     return cluster.node_hosts.get(node, node)
 
 
-def pin_to_local_id(
-    ref: ImageRef, raw_image: str, host: str, cluster: ClusterConfig, *, runner=subprocess.run
-) -> ImageRef:
-    """Give a tag-only ref the node's local image id as its digest, so the
-    Dependency-Track version changes when a mutable tag (``latest``) is rebuilt."""
-    if ref.digest:
-        return ref
-    res = run_remote(
-        host,
-        f"sudo docker image inspect --format '{{{{.Id}}}}' {shlex.quote(raw_image)}",
-        runner=runner,
-        **_ssh_kw(cluster),
+def running_image_id(host: str, cluster: ClusterConfig, service: str, *, runner=subprocess.run) -> str | None:
+    """Image id of ``service``'s running container on ``host``. Scanning by id
+    finds the image even when its tag has since been removed or moved on the
+    node (a rebuilt local tag, a pruned estate-local registry name)."""
+    svc = shlex.quote(service)
+    cmd = (
+        f"C=$(sudo docker ps -q --filter label=com.docker.swarm.service.name={svc} | head -n1); "
+        '[ -n "$C" ] && sudo docker inspect --format \'{{.Image}}\' "$C"'
     )
+    res = run_remote(host, cmd, runner=runner, **_ssh_kw(cluster))
     image_id = res.stdout.strip() if res.ok else ""
-    return dataclasses.replace(ref, digest=image_id) if image_id.startswith("sha256:") else ref
+    return image_id if image_id.startswith("sha256:") else None
+
+
+def pin_ref(ref: ImageRef, image_id: str | None) -> ImageRef:
+    """Give a tag-only ref the running image id as its digest, so the
+    Dependency-Track version changes when a mutable tag (``latest``) is rebuilt."""
+    return dataclasses.replace(ref, digest=image_id) if image_id and not ref.digest else ref
 
 
 def trivy_runner(
@@ -82,7 +88,11 @@ def trivy_runner(
     trivy arguments inside ``container_image`` on ``host``."""
 
     def run(argv, *, capture_output=True, text=True, timeout=300, **_ignored):
-        trivy_args = " ".join(shlex.quote(a) for a in argv[1:])
+        timeout = max(timeout, NODE_SCAN_TIMEOUT_SECONDS)
+        args = list(argv[1:])
+        if args[:1] == ["image"]:
+            args[1:1] = ["--timeout", f"{timeout - 60}s"]
+        trivy_args = " ".join(shlex.quote(a) for a in args)
         cmd = (
             "sudo docker run --rm --network host "
             "-v /var/run/docker.sock:/var/run/docker.sock "

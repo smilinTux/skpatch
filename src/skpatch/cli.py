@@ -95,6 +95,7 @@ def sbom(config_path: str, estate_name: str, service_name: str, raw_image: str, 
         raise SystemExit(1)
 
     ref = parse_image_ref(raw_image)
+    scan_target = raw_image
     trivy_kw: dict[str, Any] = {
         "use_container": cfg.trivy.use_container,
         "container_image": cfg.trivy.container_image or sbom_mod.TRIVY_IMAGE,
@@ -111,7 +112,9 @@ def sbom(config_path: str, estate_name: str, service_name: str, raw_image: str, 
             click.echo(f"no running task found for {service_name} on estate {estate_name}", err=True)
             raise SystemExit(NO_RUNNING_TASK_EXIT)
         host = onnode_mod.node_host(cluster, node)
-        ref = onnode_mod.pin_to_local_id(ref, raw_image, host, cluster)
+        image_id = onnode_mod.running_image_id(host, cluster, service_name)
+        ref = onnode_mod.pin_ref(ref, image_id)
+        scan_target = image_id or raw_image
         trivy_kw = {
             "use_container": False,
             "subprocess_runner": onnode_mod.trivy_runner(
@@ -122,7 +125,7 @@ def sbom(config_path: str, estate_name: str, service_name: str, raw_image: str, 
         estate=estate_name,
         service=service_name,
         ref=ref,
-        raw_image=raw_image,
+        raw_image=scan_target,
         dt_config=cfg.dependency_track,
         session=requests.Session(),
         **trivy_kw,
