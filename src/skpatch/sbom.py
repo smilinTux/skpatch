@@ -76,6 +76,9 @@ class SyncResult:
     uploaded: bool
     deactivated_versions: list[str]
     error: str = ""
+    # Set when the estate/stack parents or the project's place under them
+    # could not be ensured. The BOM upload does not depend on it.
+    hierarchy_error: str = ""
 
 
 def project_name_for(estate: str, service: str) -> str:
@@ -88,6 +91,160 @@ def project_version_for(ref: ImageRef) -> str:
     if ref.tag and ref.digest:
         return f"{ref.tag}@{ref.digest}"
     return ref.tag or ref.digest or "unknown"
+
+
+def stack_for(service: str) -> str | None:
+    """The swarm stack of a ``<stack>_<service>`` name (``skhub-prod_nextcloud``
+    is in ``skhub-prod``); ``None`` for a name with no stack part."""
+    stack, sep, rest = service.partition("_")
+    return stack if sep and stack and rest else None
+
+
+def hierarchy_tags(estate: str, service: str) -> list[str]:
+    stack = stack_for(service)
+    return [f"estate-{estate}"] + ([f"stack-{stack}"] if stack else [])
+
+
+# Collection projects (no BOM of their own) that roll their children up in
+# Dependency-Track 4.13+: the estate sums its stacks, a stack sums the latest
+# version of each of its services (older versions are deactivated anyway).
+ESTATE_LOGIC = "AGGREGATE_DIRECT_CHILDREN"
+STACK_LOGIC = "AGGREGATE_LATEST_VERSION_CHILDREN"
+
+
+def _lookup_project(
+    session: _HttpSession, *, base_url: str, api_key: str, name: str, version: str | None, timeout: float = 30
+) -> dict[str, Any] | None:
+    params = {"name": name}
+    if version is not None:
+        params["version"] = version
+    resp = session.get(
+        f"{base_url.rstrip('/')}/api/v1/project/lookup",
+        params=params,
+        headers={"X-Api-Key": api_key},
+        timeout=timeout,
+    )
+    status = getattr(resp, "status_code", 200)
+    if status == 404:
+        return None
+    if status >= 300:
+        raise SbomError(f"Dependency-Track project lookup for {name} failed: HTTP {status}")
+    data = resp.json() if hasattr(resp, "json") else None
+    return data if isinstance(data, dict) and data.get("uuid") else None
+
+
+def ensure_collection(
+    session: _HttpSession,
+    *,
+    base_url: str,
+    api_key: str,
+    name: str,
+    logic: str,
+    classifier: str,
+    tags: list[str],
+    parent_uuid: str | None = None,
+    timeout: float = 30,
+) -> str:
+    """Find or create the versionless collection project ``name`` and keep its
+    collection logic and parent as given. Returns its uuid."""
+    base = base_url.rstrip("/")
+    headers = {"X-Api-Key": api_key, "Content-Type": "application/json"}
+    current = _lookup_project(session, base_url=base, api_key=api_key, name=name, version=None, timeout=timeout)
+    if current is None:
+        body: dict[str, Any] = {
+            "name": name,
+            "classifier": classifier,
+            "collectionLogic": logic,
+            "active": True,
+            "tags": [{"name": t} for t in tags],
+        }
+        if parent_uuid:
+            body["parent"] = {"uuid": parent_uuid}
+        resp = session.put(f"{base}/api/v1/project", json=body, headers=headers, timeout=timeout)
+        status = getattr(resp, "status_code", 200)
+        data = resp.json() if hasattr(resp, "json") else None
+        if status >= 300 or not isinstance(data, dict) or not data.get("uuid"):
+            raise SbomError(f"Dependency-Track did not create the collection project {name}: HTTP {status}")
+        return data["uuid"]
+    patch: dict[str, Any] = {}
+    if current.get("collectionLogic") != logic:
+        patch["collectionLogic"] = logic
+    if parent_uuid and (current.get("parent") or {}).get("uuid") != parent_uuid:
+        patch["parent"] = {"uuid": parent_uuid}
+    if patch:
+        resp = session.patch(f"{base}/api/v1/project/{current['uuid']}", json=patch, headers=headers, timeout=timeout)
+        status = getattr(resp, "status_code", 200)
+        if status >= 300:
+            raise SbomError(f"Dependency-Track refused to update the collection project {name}: HTTP {status}")
+    return current["uuid"]
+
+
+def ensure_hierarchy(
+    session: _HttpSession, *, base_url: str, api_key: str, estate: str, service: str, timeout: float = 30
+) -> str:
+    """Ensure ``<estate>`` and ``<estate>/<stack>`` collection projects exist
+    and return the uuid a service project belongs under (the stack, or the
+    estate for a service name with no stack part)."""
+    estate_uuid = ensure_collection(
+        session,
+        base_url=base_url,
+        api_key=api_key,
+        name=estate,
+        logic=ESTATE_LOGIC,
+        classifier="PLATFORM",
+        tags=[f"estate-{estate}"],
+        timeout=timeout,
+    )
+    stack = stack_for(service)
+    if stack is None:
+        return estate_uuid
+    return ensure_collection(
+        session,
+        base_url=base_url,
+        api_key=api_key,
+        name=f"{estate}/{stack}",
+        logic=STACK_LOGIC,
+        classifier="APPLICATION",
+        tags=hierarchy_tags(estate, service),
+        parent_uuid=estate_uuid,
+        timeout=timeout,
+    )
+
+
+def place_project(
+    session: _HttpSession,
+    *,
+    base_url: str,
+    api_key: str,
+    project_name: str,
+    project_version: str,
+    parent_uuid: str,
+    timeout: float = 30,
+) -> None:
+    """Move an existing service project under ``parent_uuid`` and mark it the
+    latest version. The upload's ``parentUUID`` only applies when it creates
+    the project, so projects made before the hierarchy need this."""
+    current = _lookup_project(
+        session, base_url=base_url, api_key=api_key, name=project_name, version=project_version, timeout=timeout
+    )
+    if current is None:
+        return
+    patch: dict[str, Any] = {}
+    if (current.get("parent") or {}).get("uuid") != parent_uuid:
+        patch["parent"] = {"uuid": parent_uuid}
+    if current.get("isLatest") is not True:
+        patch["isLatest"] = True
+    if not patch:
+        return
+    resp = session.patch(
+        f"{base_url.rstrip('/')}/api/v1/project/{current['uuid']}",
+        json=patch,
+        headers={"X-Api-Key": api_key, "Content-Type": "application/json"},
+        timeout=timeout,
+    )
+    status = getattr(resp, "status_code", 200)
+    if status >= 300:
+        raise SbomError(f"Dependency-Track refused to move {project_name} under its stack: HTTP {status}")
 
 
 def run_trivy_sbom(
@@ -217,6 +374,8 @@ def upload_bom(
     project_version: str,
     bom: dict[str, Any],
     timeout: float = 60,
+    parent_uuid: str | None = None,
+    tags: list[str] | None = None,
 ) -> None:
     """PUT the BOM to Dependency-Track's ``/api/v1/bom`` endpoint.
 
@@ -230,6 +389,12 @@ def upload_bom(
         "autoCreate": True,
         "bom": base64.b64encode(json.dumps(dedupe_bom(bom)).encode()).decode(),
     }
+    if parent_uuid:
+        body["parentUUID"] = parent_uuid
+    if tags:
+        # Bound to the project on every upload, created or not.
+        body["projectTags"] = [{"name": t} for t in tags]
+        body["isLatest"] = True
     # PUT, not POST: Dependency-Track takes a JSON (base64 BOM) upload only on
     # PUT /api/v1/bom; POST there is multipart and answers 415 to JSON.
     resp = session.put(
@@ -307,6 +472,7 @@ def sync_image_sbom(
     cache_dir: str | None = None,
     subprocess_runner=None,
     api_key: str | None = None,
+    hierarchy: bool = True,
 ) -> SyncResult:
     """End to end: scan ``raw_image`` with trivy, upload to Dependency-Track,
     deactivate the project's other versions.
@@ -316,6 +482,11 @@ def sync_image_sbom(
     ``docker_cmd``/``cache_dir`` pass straight through to
     ``run_trivy_sbom``; their defaults reproduce the pre-existing
     local-binary behavior exactly.
+
+    With ``hierarchy`` (the default) the project goes under collection
+    projects ``<estate>`` and ``<estate>/<stack>`` and carries the tags
+    ``estate-<estate>`` and ``stack-<stack>``. A hierarchy failure is reported
+    in ``hierarchy_error`` and never stops the upload.
     """
     project_name = project_name_for(estate, service)
     project_version = project_version_for(ref)
@@ -330,6 +501,15 @@ def sync_image_sbom(
             cache_dir=cache_dir,
             runner=subprocess_runner,
         )
+        parent_uuid = None
+        hierarchy_error = ""
+        if hierarchy:
+            try:
+                parent_uuid = ensure_hierarchy(
+                    session, base_url=dt_config.base_url, api_key=key, estate=estate, service=service
+                )
+            except SbomError as exc:
+                hierarchy_error = str(exc)
         upload_bom(
             session,
             base_url=dt_config.base_url,
@@ -337,7 +517,21 @@ def sync_image_sbom(
             project_name=project_name,
             project_version=project_version,
             bom=bom,
+            parent_uuid=parent_uuid,
+            tags=hierarchy_tags(estate, service) if hierarchy else None,
         )
+        if parent_uuid:
+            try:
+                place_project(
+                    session,
+                    base_url=dt_config.base_url,
+                    api_key=key,
+                    project_name=project_name,
+                    project_version=project_version,
+                    parent_uuid=parent_uuid,
+                )
+            except SbomError as exc:
+                hierarchy_error = str(exc)
         deactivated = deactivate_other_versions(
             session,
             base_url=dt_config.base_url,
@@ -352,6 +546,7 @@ def sync_image_sbom(
             project_version=project_version,
             uploaded=True,
             deactivated_versions=deactivated,
+            hierarchy_error=hierarchy_error,
         )
     except SbomError as exc:
         return SyncResult(
