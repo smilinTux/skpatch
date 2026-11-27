@@ -6,6 +6,18 @@ uses [Semantic Versioning](https://semver.org/).
 
 ## [0.1.0] - Unreleased
 
+### Added
+
+- `skpatch sbom` arranges Dependency-Track projects as estate, then stack,
+  then service: versionless collection projects `<estate>`
+  (`AGGREGATE_DIRECT_CHILDREN`) and `<estate>/<stack>`
+  (`AGGREGATE_LATEST_VERSION_CHILDREN`), with each service project under
+  its stack (the part of the swarm service name before `_`), marked latest
+  and tagged `estate-<estate>` and `stack-<stack>`. Projects uploaded before
+  this are moved under their stack on the next run. A hierarchy failure is
+  reported as `hierarchy_error` and never blocks the upload;
+  `sync_image_sbom(..., hierarchy=False)` keeps the old flat layout.
+
 ### Fixed
 
 - `dedupe_bom` also drops repeated refs inside each `dependsOn` list (the

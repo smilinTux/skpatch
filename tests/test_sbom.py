@@ -168,8 +168,7 @@ def test_sync_image_sbom_uploads_and_deactivates_old_versions(tmp_path):
     )
     assert result.uploaded is True
     assert result.deactivated_versions == ["34.0.3@sha256:" + "c" * 64]
-    put_call = next(c for c in session.calls if c[0] == "put")
-    assert put_call[1].endswith("/api/v1/bom")
+    put_call = next(c for c in session.calls if c[0] == "put" and c[1].endswith("/api/v1/bom"))
     assert put_call[2]["headers"]["X-Api-Key"] == "super-secret-key"
     assert not any(c[0] == "post" for c in session.calls)
 
