@@ -6,6 +6,12 @@ uses [Semantic Versioning](https://semver.org/).
 
 ## [0.1.0] - Unreleased
 
+### Fixed
+
+- `skpatch sbom` / `skpatch.sbom.upload_bom` uploads with PUT. Dependency-Track
+  takes the JSON (base64 BOM) body only on `PUT /api/v1/bom`; the old POST got
+  415 on every upload, so nothing ever reached skbom (found on nor 2026-11-26).
+
 ### Added
 
 - `skpatch updates` / `skpatch.updates`: newer releases (patch, minor, major,
