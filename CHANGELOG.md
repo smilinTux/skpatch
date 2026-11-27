@@ -14,6 +14,8 @@ uses [Semantic Versioning](https://semver.org/).
   task and runs the pinned Trivy container there against that node's Docker
   daemon, then uploads as usual. A tag-only image gets the node's image id
   as its digest, so rebuilding a mutable tag makes a new version.
+  Trivy scans the running container's image id, so an image whose tag was
+  removed or moved on the node still scans.
   `clusters.<estate>.node_hosts` maps swarm node names to ssh hosts. A
   service with no running task (scaled to 0) exits 3, not 1, so a caller can
   count it as skipped.

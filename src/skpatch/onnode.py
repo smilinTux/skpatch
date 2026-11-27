@@ -53,21 +53,24 @@ def node_host(cluster: ClusterConfig, node: str) -> str:
     return cluster.node_hosts.get(node, node)
 
 
-def pin_to_local_id(
-    ref: ImageRef, raw_image: str, host: str, cluster: ClusterConfig, *, runner=subprocess.run
-) -> ImageRef:
-    """Give a tag-only ref the node's local image id as its digest, so the
-    Dependency-Track version changes when a mutable tag (``latest``) is rebuilt."""
-    if ref.digest:
-        return ref
-    res = run_remote(
-        host,
-        f"sudo docker image inspect --format '{{{{.Id}}}}' {shlex.quote(raw_image)}",
-        runner=runner,
-        **_ssh_kw(cluster),
+def running_image_id(host: str, cluster: ClusterConfig, service: str, *, runner=subprocess.run) -> str | None:
+    """Image id of ``service``'s running container on ``host``. Scanning by id
+    finds the image even when its tag has since been removed or moved on the
+    node (a rebuilt local tag, a pruned estate-local registry name)."""
+    svc = shlex.quote(service)
+    cmd = (
+        f"C=$(sudo docker ps -q --filter label=com.docker.swarm.service.name={svc} | head -n1); "
+        '[ -n "$C" ] && sudo docker inspect --format \'{{.Image}}\' "$C"'
     )
+    res = run_remote(host, cmd, runner=runner, **_ssh_kw(cluster))
     image_id = res.stdout.strip() if res.ok else ""
-    return dataclasses.replace(ref, digest=image_id) if image_id.startswith("sha256:") else ref
+    return image_id if image_id.startswith("sha256:") else None
+
+
+def pin_ref(ref: ImageRef, image_id: str | None) -> ImageRef:
+    """Give a tag-only ref the running image id as its digest, so the
+    Dependency-Track version changes when a mutable tag (``latest``) is rebuilt."""
+    return dataclasses.replace(ref, digest=image_id) if image_id and not ref.digest else ref
 
 
 def trivy_runner(
