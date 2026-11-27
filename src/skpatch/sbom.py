@@ -51,6 +51,7 @@ class SbomError(Exception):
 class _HttpSession(Protocol):
     def get(self, url: str, **kwargs: Any) -> Any: ...
     def post(self, url: str, **kwargs: Any) -> Any: ...
+    def put(self, url: str, **kwargs: Any) -> Any: ...
     def patch(self, url: str, **kwargs: Any) -> Any: ...
 
 
@@ -170,7 +171,9 @@ def upload_bom(
         "autoCreate": True,
         "bom": base64.b64encode(json.dumps(bom).encode()).decode(),
     }
-    resp = session.post(
+    # PUT, not POST: Dependency-Track takes a JSON (base64 BOM) upload only on
+    # PUT /api/v1/bom; POST there is multipart and answers 415 to JSON.
+    resp = session.put(
         f"{base_url.rstrip('/')}/api/v1/bom",
         json=body,
         headers={"X-Api-Key": api_key, "Content-Type": "application/json"},

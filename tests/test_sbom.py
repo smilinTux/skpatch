@@ -44,7 +44,13 @@ class FakeSession:
         self._project_versions = project_versions or []
 
     def post(self, url, **kwargs):
+        # Dependency-Track answers 415 to a JSON POST on /api/v1/bom: POST
+        # there is multipart only. JSON uploads must be a PUT.
         self.calls.append(("post", url, kwargs))
+        return FakeResp(415)
+
+    def put(self, url, **kwargs):
+        self.calls.append(("put", url, kwargs))
         return FakeResp(200)
 
     def get(self, url, **kwargs):
@@ -160,8 +166,10 @@ def test_sync_image_sbom_uploads_and_deactivates_old_versions(tmp_path):
     )
     assert result.uploaded is True
     assert result.deactivated_versions == ["34.0.3@sha256:" + "c" * 64]
-    post_call = next(c for c in session.calls if c[0] == "post")
-    assert post_call[2]["headers"]["X-Api-Key"] == "super-secret-key"
+    put_call = next(c for c in session.calls if c[0] == "put")
+    assert put_call[1].endswith("/api/v1/bom")
+    assert put_call[2]["headers"]["X-Api-Key"] == "super-secret-key"
+    assert not any(c[0] == "post" for c in session.calls)
 
 
 def test_sync_image_sbom_reports_a_trivy_failure_without_raising(tmp_path):
