@@ -26,6 +26,9 @@ from skpatch.imageref import ImageRef
 from skpatch.inventory import _first_reachable_manager
 
 NODE_CACHE_DIR = "/var/cache/skpatch-trivy"
+# Estate nodes are often busy, and some local images are large (a 4.2 GB ML
+# worker took over Trivy's default 5 minutes on a loaded nam node).
+NODE_SCAN_TIMEOUT_SECONDS = 1200
 
 
 def _ssh_kw(cluster: ClusterConfig) -> dict:
@@ -85,7 +88,11 @@ def trivy_runner(
     trivy arguments inside ``container_image`` on ``host``."""
 
     def run(argv, *, capture_output=True, text=True, timeout=300, **_ignored):
-        trivy_args = " ".join(shlex.quote(a) for a in argv[1:])
+        timeout = max(timeout, NODE_SCAN_TIMEOUT_SECONDS)
+        args = list(argv[1:])
+        if args[:1] == ["image"]:
+            args[1:1] = ["--timeout", f"{timeout - 60}s"]
+        trivy_args = " ".join(shlex.quote(a) for a in args)
         cmd = (
             "sudo docker run --rm --network host "
             "-v /var/run/docker.sock:/var/run/docker.sock "

@@ -81,7 +81,7 @@ def test_trivy_runner_runs_the_pinned_trivy_container_on_the_node_against_its_do
     remote = argv[-1]
     assert "/var/run/docker.sock:/var/run/docker.sock" in remote
     assert "--network host" in remote
-    assert "aquasec/trivy:1@sha256:x image --quiet --format cyclonedx img:1" in remote
+    assert "aquasec/trivy:1@sha256:x image --timeout 1140s --quiet --format cyclonedx img:1" in remote
 
 
 def test_trivy_runner_reports_an_unreachable_node_as_a_failed_scan():
