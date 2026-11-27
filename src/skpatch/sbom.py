@@ -37,6 +37,18 @@ from skpatch.imageref import ImageRef
 TRIVY_IMAGE = "aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb"
 
 
+def default_docker_config() -> str | None:
+    """The host's docker client config (``$DOCKER_CONFIG/config.json`` or
+    ``~/.docker/config.json``) if it exists, else None. A container-mode
+    trivy run mounts it read-only so it can pull private registry images
+    (for example skgit's) with the same logins the host already has."""
+    import os
+
+    base = os.environ.get("DOCKER_CONFIG") or str(Path("~/.docker").expanduser())
+    path = Path(base) / "config.json"
+    return str(path) if path.is_file() else None
+
+
 def default_trivy_cache_dir() -> str:
     """Where a container-mode trivy run persists its vulnerability DB cache
     between runs (bind-mounted at /root/.cache/trivy in the container), so a
@@ -86,6 +98,7 @@ def run_trivy_sbom(
     container_image: str = TRIVY_IMAGE,
     docker_cmd: str = "docker",
     cache_dir: str | None = None,
+    docker_config: str | None = "auto",
     timeout: float = 300,
     runner=None,
 ) -> dict[str, Any]:
@@ -102,6 +115,10 @@ def run_trivy_sbom(
       a floating tag) via ``docker_cmd run --rm``, bind-mounting
       ``cache_dir`` (default ``default_trivy_cache_dir()``) at
       ``/root/.cache/trivy`` so the vulnerability DB persists between runs.
+      ``docker_config`` (default ``"auto"``: ``default_docker_config()``;
+      None disables it) is mounted read-only at ``/root/.docker/config.json``
+      so private registries the host is logged in to can be pulled. Only
+      inline ``auth`` entries work this way, not a credential helper.
 
     Raises SbomError on a non-zero exit or unparsable output; never raises a
     raw subprocess exception so a scheduled run can log and skip one bad
@@ -116,6 +133,11 @@ def run_trivy_sbom(
             "--rm",
             "-v",
             f"{resolved_cache_dir}:/root/.cache/trivy",
+        ]
+        resolved_docker_config = default_docker_config() if docker_config == "auto" else docker_config
+        if resolved_docker_config:
+            argv += ["-v", f"{resolved_docker_config}:/root/.docker/config.json:ro"]
+        argv += [
             container_image,
             "image",
             "--quiet",
@@ -149,6 +171,43 @@ def _read_api_key(path: str) -> str:
     return key
 
 
+def _dedupe_items(items: list[Any]) -> list[Any]:
+    seen: set[str] = set()
+    out: list[Any] = []
+    for item in items:
+        key = json.dumps(item, sort_keys=True)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(item)
+    return out
+
+
+def dedupe_bom(bom: dict[str, Any]) -> dict[str, Any]:
+    """Drop exact duplicate entries from ``components`` (at every nesting
+    level) and ``dependencies``.
+
+    trivy can list the same component twice (seen with cargo crates in
+    n8n and Windmill images). CycloneDX requires unique array items, so
+    Dependency-Track's schema validation answers 400 to the whole BOM.
+    Only byte-identical entries are dropped; nothing is merged.
+    """
+
+    def _walk(components: list[Any]) -> list[Any]:
+        unique = _dedupe_items(components)
+        for comp in unique:
+            if isinstance(comp, dict) and isinstance(comp.get("components"), list):
+                comp["components"] = _walk(comp["components"])
+        return unique
+
+    out = dict(bom)
+    if isinstance(out.get("components"), list):
+        out["components"] = _walk(out["components"])
+    if isinstance(out.get("dependencies"), list):
+        out["dependencies"] = _dedupe_items(out["dependencies"])
+    return out
+
+
 def upload_bom(
     session: _HttpSession,
     *,
@@ -169,7 +228,7 @@ def upload_bom(
         "projectName": project_name,
         "projectVersion": project_version,
         "autoCreate": True,
-        "bom": base64.b64encode(json.dumps(bom).encode()).decode(),
+        "bom": base64.b64encode(json.dumps(dedupe_bom(bom)).encode()).decode(),
     }
     # PUT, not POST: Dependency-Track takes a JSON (base64 BOM) upload only on
     # PUT /api/v1/bom; POST there is multipart and answers 415 to JSON.
