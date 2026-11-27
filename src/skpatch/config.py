@@ -28,6 +28,9 @@ class ClusterConfig(BaseModel):
     ssh_user: str | None = None
     ssh_identity: str | None = None
     docker_cmd: str = "sudo docker"
+    # swarm node hostname -> ssh host, for `skpatch sbom --on-node` when a
+    # node's swarm name is not something ssh can reach directly
+    node_hosts: dict[str, str] = Field(default_factory=dict)
 
 
 class RegistryConfig(BaseModel):
