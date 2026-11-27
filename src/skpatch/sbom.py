@@ -149,7 +149,9 @@ def ensure_collection(
     collection logic and parent as given. Returns its uuid."""
     base = base_url.rstrip("/")
     headers = {"X-Api-Key": api_key, "Content-Type": "application/json"}
-    current = _lookup_project(session, base_url=base, api_key=api_key, name=name, version=None, timeout=timeout)
+    current = _lookup_project(
+        session, base_url=base, api_key=api_key, name=name, version=None, timeout=timeout
+    )
     if current is None:
         body: dict[str, Any] = {
             "name": name,
@@ -172,10 +174,14 @@ def ensure_collection(
     if parent_uuid and (current.get("parent") or {}).get("uuid") != parent_uuid:
         patch["parent"] = {"uuid": parent_uuid}
     if patch:
-        resp = session.patch(f"{base}/api/v1/project/{current['uuid']}", json=patch, headers=headers, timeout=timeout)
+        resp = session.patch(
+            f"{base}/api/v1/project/{current['uuid']}", json=patch, headers=headers, timeout=timeout
+        )
         status = getattr(resp, "status_code", 200)
         if status >= 300:
-            raise SbomError(f"Dependency-Track refused to update the collection project {name}: HTTP {status}")
+            raise SbomError(
+                f"Dependency-Track refused to update the collection project {name}: HTTP {status}"
+            )
     return current["uuid"]
 
 
@@ -225,7 +231,12 @@ def place_project(
     latest version. The upload's ``parentUUID`` only applies when it creates
     the project, so projects made before the hierarchy need this."""
     current = _lookup_project(
-        session, base_url=base_url, api_key=api_key, name=project_name, version=project_version, timeout=timeout
+        session,
+        base_url=base_url,
+        api_key=api_key,
+        name=project_name,
+        version=project_version,
+        timeout=timeout,
     )
     if current is None:
         return

@@ -95,7 +95,9 @@ def _sync(dt, service="skhub-prod_nextcloud", **kw):
         dt_config=cfg,
         session=dt,
         api_key="k",
-        subprocess_runner=lambda *a, **k: type("C", (), {"returncode": 0, "stdout": json.dumps(CYCLONEDX_BOM), "stderr": ""})(),
+        subprocess_runner=lambda *a, **k: type(
+            "C", (), {"returncode": 0, "stdout": json.dumps(CYCLONEDX_BOM), "stderr": ""}
+        )(),
         **kw,
     )
 
