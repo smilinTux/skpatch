@@ -244,7 +244,11 @@ def test_dedupe_bom_drops_exact_duplicate_components_and_dependencies():
     other = {"bom-ref": "pkg:cargo/aho-corasick@1.1.4", "name": "aho-corasick", "version": "1.1.4", "x": 1}
     nested = {"bom-ref": "app", "name": "app", "components": [crate, dict(crate)]}
     dep = {"ref": "app", "dependsOn": ["pkg:cargo/aho-corasick@1.1.4"]}
-    bom = {"bomFormat": "CycloneDX", "components": [crate, dict(crate), other, nested], "dependencies": [dep, dict(dep)]}
+    bom = {
+        "bomFormat": "CycloneDX",
+        "components": [crate, dict(crate), other, nested],
+        "dependencies": [dep, dict(dep)],
+    }
     out = dedupe_bom(bom)
     # byte-identical entries go, a near duplicate stays (nothing is merged)
     assert out["components"] == [crate, other, {"bom-ref": "app", "name": "app", "components": [crate]}]
@@ -265,7 +269,7 @@ def test_upload_bom_sends_a_deduplicated_bom():
         project_version="1@sha256:0",
         bom={"bomFormat": "CycloneDX", "components": [crate, dict(crate)]},
     )
-    (method, _url, kwargs), = session.calls
+    ((method, _url, kwargs),) = session.calls
     assert method == "put"
     sent = json.loads(base64.b64decode(kwargs["json"]["bom"]))
     assert sent["components"] == [crate]
